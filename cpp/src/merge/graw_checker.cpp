@@ -1,4 +1,5 @@
 #include "include/merge/graw_checker.h"
+#include "include/statistics.h"
 
 #include <algorithm>
 #include <iostream>
@@ -16,8 +17,13 @@ std::string AsadResultTypeToString(const AsadResultType &type) {
 	}
 }
 
-GrawChecker::GrawChecker(const std::filesystem::path &path, int run)
-: graw_dir_(path)
+GrawChecker::GrawChecker(
+	const std::filesystem::path &graw_dir,
+	const std::filesystem::path &workspace_dir,
+	int run
+)
+: graw_dir_(graw_dir)
+, workspace_dir_(workspace_dir)
 , run_(run) {
 	for (int idx = 0; idx < 42; ++idx) {
 		event_counts_[idx] = 0;
@@ -43,53 +49,10 @@ CheckGrawResult GrawChecker::Check() {
 			result.pass = false;
 		}
 	}
-	// get max events
-	int max_events = *(std::max_element(event_counts_, event_counts_+42));
-	// check if event count less than max_events
-	for (int idx = 0; idx < 42; ++idx) {
-		if (result.asad_results[idx].type != AsadResultType::Pass) {
-			continue;
-		}
-		if (event_counts_[idx] != max_events) {
-			complete_[idx] = false;
-			result.asad_results[idx].type = AsadResultType::Incomplete;
-			result.which.push_back(idx);
-			result.pass = false;
-		}
-	}
-	// print results
-	std::cout << "Cobo,Asad,events,start,end,good,complete,continuous\n";
-	for (int idx = 0; idx < 42; ++idx) {
-		std::cout << idx/4 << "," << idx%4 << ","
-			<< event_counts_[idx] << ","
-			<< start_event_[idx] << ","
-			<< end_event_[idx] << ","
-			<< (good_[idx] ? "true" : "false") << ","
-			<< (complete_[idx] ? "true" : "false") << ","
-			<< (continuous_[idx] ? "true" : "false")
-			<< "\n";
-	}
-	// std::filesystem::path statistics_path;
-	// Statistics statistics(
-	// 	statistics_path,
-	// 	[](const auto &row){
-	// 		int run = row.as<int>(0);
-	// 		int cobo = row.as<int>(1);
-	// 		int asad = row.as<int>(2);
-	// 		key = (run<<6) | (cobo<<2) | asad;
-	// 		return key;
-	// 	}
-	// );
-	// statistics.SetHeader("Run,Cobo,Asad,events,start,end,good,continuous,complete");
-	// for (int idx = 0; idx < 42; ++idx) {
-	// 	int cobo = idx / 4;
-	// 	int asad = idx % 4;
-	// 	statistics.AddEntry()
-	// 		<< run_ << cobo << asad
-	// 		<< event_counts_[idx] << start_event_[idx] << end_event_[idx]
-	// 		<< good_[idx] << continuous_[idx] << complete_[idx];
-	// }
-	// statistics.Write();
+	CheckEventId(start_event_, result);
+	CheckEventId(end_event_, result);
+	// record
+	Record();
 	return result;
 }
 
@@ -170,6 +133,61 @@ CheckAsadResult GrawChecker::CheckAsad(int cobo, int asad) {
 	}
 
 	return result;
+}
+
+
+void GrawChecker::CheckEventId(int *id_list, CheckGrawResult &result) {
+	// get max events
+	int max_events = id_list[0];
+	for (int idx = 0; idx < 42; ++idx) {
+		if (result.asad_results[idx].type != AsadResultType::Pass) {
+			continue;
+		}
+		if (id_list[idx] > max_events) {
+			max_events = id_list[idx];
+		}
+	}
+	// check if event count less than max_events
+	for (int idx = 0; idx < 42; ++idx) {
+		if (result.asad_results[idx].type != AsadResultType::Pass) {
+			continue;
+		}
+		if (id_list[idx] != max_events) {
+			complete_[idx] = false;
+			result.asad_results[idx].type = AsadResultType::Incomplete;
+			result.which.push_back(idx);
+			result.pass = false;
+		}
+	}
+}
+
+
+void GrawChecker::Record() const {
+	std::filesystem::path statistics_path(
+		workspace_dir_ / "statistics" / "merge_check.csv"
+	);
+	Statistics statistics(
+		statistics_path,
+		[](const Row &row) {
+			int run = row.As<int>(0);
+			int cobo = row.As<int>(1);
+			int asad = row.As<int>(2);
+			int key = (run<<6) | (cobo<<2) | asad;
+			return key;
+		}
+	);
+	statistics.SetHeader("Run,Cobo,Asad,events,start,end,good,continuous,complete");
+	for (int idx = 0; idx < 42; ++idx) {
+		int cobo = idx / 4;
+		int asad = idx % 4;
+		statistics.AddEntry()
+			<< run_ << cobo << asad
+			<< event_counts_[idx] << start_event_[idx] << end_event_[idx]
+			<< (good_[idx] ? "true" : "false")
+			<< (continuous_[idx] ? "true" : "false")
+			<< (complete_[idx] ? "true" : "false");
+	}
+	statistics.Write();
 }
 
 }

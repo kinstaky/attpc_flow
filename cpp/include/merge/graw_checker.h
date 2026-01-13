@@ -51,9 +51,14 @@ struct CheckGrawResult {
 class GrawChecker {
 public:
 	/// @brief Constructor
-	/// @param[in] path graw directory
+	/// @param[in] graw_dir graw directory
+	/// @param[in] workspace_dir workspace directory
 	/// @param[in] run run number
-	GrawChecker(const std::filesystem::path &path, int run);
+	GrawChecker(
+		const std::filesystem::path &graw_dir,
+		const std::filesystem::path &workspace_dir,
+		int run
+	);
 
 	/// @brief Default destructor
 	~GrawChecker() = default;
@@ -64,6 +69,8 @@ public:
 private:
 	// Graw directory
 	std::filesystem::path graw_dir_;
+	// workspace directory
+	std::filesystem::path workspace_dir_;
 	// run number
 	int run_;
 	// event counts
@@ -84,6 +91,13 @@ private:
 	/// @param[in] asad asad number
 	/// @returns CheckAsadResult
 	CheckAsadResult CheckAsad(int cobo, int asad);
+
+	/// @brief Check event id is continuous
+	/// @param[in] ids event ids
+	void CheckEventId(int *id_list, CheckGrawResult &result);
+
+	/// @brief Record results
+	void Record() const;
 };
 
 }

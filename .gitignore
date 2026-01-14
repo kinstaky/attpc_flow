@@ -1,3 +1,13 @@
 # vscode and plugins
 .vscode
 .marscode
+
+# python version and virtual environments
+.python-version
+.venv
+
+# python cache
+__pycache__
+
+# cpp build
+build

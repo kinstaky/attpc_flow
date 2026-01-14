@@ -4,12 +4,11 @@ cmake_minimum_required(VERSION 3.10)
 
 # Set project properties.
 project(
-	Isomer
+	ATTPC_FLOW_CPP
 	VERSION 0.1.0
-	DESCRIPTION "A project to analysis 12Be isomer data from GAGG decoded from RCNP EN beamline."
+	DESCRIPTION "ATTPC flow analysis framework."
 	LANGUAGES CXX
 )
-
 
 # Require out-of-source builds
 file(TO_CMAKE_PATH "${PROJECT_BINARY_DIR}/CMakeLists.txt" LOC_PATH)
@@ -42,8 +41,6 @@ if (CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
 	set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 endif()
 
-# find root
-find_package(ROOT REQUIRED COMPONENTS Core RIO Tree Hist Graf)
 
 function(show_config_options)
 	message("")

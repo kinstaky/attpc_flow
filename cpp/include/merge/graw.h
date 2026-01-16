@@ -5,7 +5,7 @@
 #include <fstream>
 #include <filesystem>
 
-namespace flow {
+namespace atflow {
 
 struct GrawFrameHeader {
 	uint32_t meta_type : 8;

@@ -1,6 +1,6 @@
 #include "include/merge/graw.h"
 
-namespace flow {
+namespace atflow {
 
 GrawFrameHeaderReader::GrawFrameHeaderReader(const std::filesystem::path &path) {
 	fin_.open(path, std::ios::binary);

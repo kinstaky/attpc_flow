@@ -5,7 +5,7 @@
 #include <iostream>
 #include <sstream>
 
-namespace flow {
+namespace atflow {
 
 std::string AsadResultTypeToString(const AsadResultType &type) {
 	switch (type) {

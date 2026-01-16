@@ -6,7 +6,7 @@
 
 #include "include/merge/graw.h"
 
-namespace flow {
+namespace atflow {
 
 /// @brief Result type of checking single asad's data
 enum class AsadResultType {

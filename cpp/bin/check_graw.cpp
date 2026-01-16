@@ -20,14 +20,14 @@ int main(int argc, char **argv) {
 	// run number
 	int run = std::stoi(argv[3]);
 	// check
-	flow::GrawChecker checker(graw_dir, workspace_dir, run);
-	flow::CheckGrawResult result = checker.Check();
+	atflow::GrawChecker checker(graw_dir, workspace_dir, run);
+	atflow::CheckGrawResult result = checker.Check();
 	// show results
 	std::cout << (result.pass ? "Pass" : "Fail") << std::endl;
 	for (const int idx : result.which) {
 		std::cout << result.asad_results[idx].cobo
 			<< ", " << result.asad_results[idx].asad
-			<< ", " << flow::AsadResultTypeToString(result.asad_results[idx].type)
+			<< ", " << atflow::AsadResultTypeToString(result.asad_results[idx].type)
 			<< std::endl;
 	}
 	return 0;

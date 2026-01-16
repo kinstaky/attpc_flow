@@ -7,7 +7,9 @@
 #include <sstream>
 #include <vector>
 
-namespace flow {
+#include "include/file_lock.h"
+
+namespace atflow {
 
 class Row {
 public:
@@ -55,8 +57,6 @@ private:
 };
 
 
-
-
 template<typename Key>
 class Statistics {
 public:
@@ -97,6 +97,12 @@ Statistics<Key>::Statistics(
 	std::filesystem::create_directories(path_.parent_path());
 	// read file if exists
 	if (std::filesystem::exists(path_)) {
+		// create lock file if not exists
+		std::filesystem::path lock_path =
+			path_.parent_path() / (path_.stem().string() + ".lock");
+		// acquire lock
+		FileLock lock(lock_path.string().c_str());
+		// read file
 		std::ifstream fin(path_);
 		std::string line;
 		// read header
@@ -112,6 +118,11 @@ Statistics<Key>::Statistics(
 			) {
 				rows_.back() << std::string_view(
 					line.data() + pos, found - pos
+				);
+			}
+			if (pos != line.size()) {
+				rows_.back() << std::string_view(
+					line.data() + pos, line.size() - pos
 				);
 			}
 		}
@@ -146,6 +157,11 @@ void Statistics<Key>::Write() {
 			*iter = row;
 		}
 	}
+	// create lock file if not exists
+	std::filesystem::path lock_path =
+		path_.parent_path() / (path_.stem().string() + ".lock");
+	// acquire lock
+	FileLock lock(lock_path.string().c_str());
 	// open file
 	std::ofstream fout(path_);
 	fout << header_ << "\n";

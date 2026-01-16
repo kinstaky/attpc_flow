@@ -1,3 +1,7 @@
+import sys
+import json
+import os
+
 from atflow import Processor
 import atflow.nodes
 
@@ -41,62 +45,46 @@ import atflow.nodes
 # 	]
 # }
 
-tasks = [
-	{
-		"name": "const_int",
-		"id": 0,
-		"inputs": {},
-		"outputs": [[(1, "run"), (2, "run"), (3, "run")]],
-		"properties": {
-			"value": [1055, 1056, 1057],
-		},
-		"waiting": 0,
-	},
-	{
-		"name": "check_graw_event_id",
-		"id": 1,
-		"inputs": {
-			"run": (0, 0, 0)
-		},
-		"outputs": [],
-		"properties": {
-			"graw_dir": "/data/rcnp2025/graw",
-		},
-		"waiting": 1,
-	},
-	{
-		"name": "check_graw_event_id",
-		"id": 2,
-		"inputs": {
-			"run": (0, 0, 1)
-		},
-		"outputs": [],
-		"properties": {
-			"graw_dir": "/data/rcnp2025/graw",
-		},
-		"waiting": 1,
-	},
-	{
-		"name": "check_graw_event_id",
-		"id": 3,
-		"inputs": {
-			"run": (0, 0, 2)
-		},
-		"outputs": [],
-		"properties": {
-			"graw_dir": "/data/rcnp2025/graw",
-		},
-		"waiting": 1,
-	},
-]
 
-workspace_dir = "/data/rcnp2025/attpc_flow"
+def main():
+	# Validate Command Line Arguments
+	if len(sys.argv) != 2:
+		print("Usage: python script_name.py <config_file.json>")
+		print("Example: python main.py my_config.json")
+		sys.exit(1)
 
-if __name__ == "__main__":
+	config_path = sys.argv[1]
+
+	# Check if file exists
+	if not os.path.exists(config_path):
+		print(f"Error: File '{config_path}' not found.")
+		sys.exit(1)
+
+	# Read and Parse JSON Config
+	try:
+		with open(config_path, "r") as f:
+			config_data = json.load(f)
+	except json.JSONDecodeError as e:
+		print(f"Error: Failed to parse JSON. {e}")
+		sys.exit(1)
+	except Exception as e:
+		print(f"An unexpected error occurred: {e}")
+		sys.exit(1)
+
+	# Extract parameters (with defaults or error checking)
+	max_workers = config_data.get("threads", 1)
+	environment = config_data.get("environment", {})
+	tasks = config_data.get("tasks", [])
+
+	if not tasks:
+		print("Warning: No tasks found in configuration file.")
+		return
+
 	processor = Processor(
-		environment={
-			"workspace_dir": workspace_dir,
-		},
-		max_workers=2,
+		environment=environment,
+		max_workers=max_workers,
 	)
 	processor.process(tasks)
+
+if __name__ == "__main__":
+	main()

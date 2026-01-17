@@ -5,6 +5,8 @@
 #include <iostream>
 #include <sstream>
 
+#include "ext/zmq.hpp"
+
 namespace atflow {
 
 std::string AsadResultTypeToString(const AsadResultType &type) {
@@ -18,13 +20,31 @@ std::string AsadResultTypeToString(const AsadResultType &type) {
 }
 
 GrawChecker::GrawChecker(
-	const std::filesystem::path &graw_dir,
+	int task_id,
 	const std::filesystem::path &workspace_dir,
+	const std::filesystem::path &graw_dir,
 	int run
 )
-: graw_dir_(graw_dir)
+: task_id_(task_id)
 , workspace_dir_(workspace_dir)
+, graw_dir_(graw_dir)
 , run_(run) {
+	// get total size
+	total_size_ = 0;
+	std::stringstream ss;
+	ss << std::setw(4) << std::setfill('0')
+		<< "run_" << run_;
+	std::filesystem::path run_dir = graw_dir_ / ss.str();
+	for (int cobo = 0; cobo < 11; ++cobo) {
+		// Cobo directory
+		std::filesystem::path cobo_dir = run_dir / ("mm" + std::to_string(cobo));
+		if (!std::filesystem::exists(cobo_dir)) continue;
+		// loop files
+		for (const auto &file : std::filesystem::directory_iterator(cobo_dir)) {
+			if (file.path().extension() != ".graw") continue;
+			total_size_ += file.file_size();
+		}
+	}
 	for (int idx = 0; idx < 42; ++idx) {
 		event_counts_[idx] = 0;
 		start_event_[idx] = -1;
@@ -36,8 +56,24 @@ GrawChecker::GrawChecker(
 }
 
 CheckGrawResult GrawChecker::Check() {
+	// initialize result
 	CheckGrawResult result;
 	result.pass = true;
+
+	// create zmq socket
+	std::stringstream msg;
+	msg << task_id_ << "," << 0;
+	zmq::context_t ctx;
+	zmq::socket_t publisher(ctx, zmq::socket_type::push);
+	publisher.connect("ipc://@attpc_flow_zmq");
+	try {
+		publisher.send(zmq::buffer(msg.str()), zmq::send_flags::dontwait);
+	} catch (const zmq::error_t &e) {
+		std::cerr << "Error: " << e.what() << std::endl;
+	}
+
+	// check size
+	size_t check_size = 0;
 	// check each asad
 	for (int idx = 0; idx < 42; ++idx) {
 		int cobo = idx / 4;
@@ -48,6 +84,24 @@ CheckGrawResult GrawChecker::Check() {
 			result.which.push_back(idx);
 			result.pass = false;
 		}
+		// check size
+		check_size += asad_result.size;
+
+		msg.str("");
+		msg << task_id_ << "," << int(check_size * 100.0 / total_size_);
+		// publish progress
+		try {
+			publisher.send(zmq::buffer(msg.str()), zmq::send_flags::dontwait);
+		} catch (const zmq::error_t &e) {
+			std::cerr << "Error: " << e.what() << std::endl;
+		}
+	}
+	msg.str("");
+	msg << task_id_ << "," << 100;
+	try {
+		publisher.send(zmq::buffer(msg.str()), zmq::send_flags::dontwait);
+	} catch (const zmq::error_t &e) {
+		std::cerr << "Error: " << e.what() << std::endl;
 	}
 	CheckEventId(start_event_, result);
 	CheckEventId(end_event_, result);
@@ -64,6 +118,7 @@ CheckAsadResult GrawChecker::CheckAsad(int cobo, int asad) {
 		.asad = asad,
 		.event = -1,
 		.type = AsadResultType::Pass,
+		.size = 0
 	};
 	// file name
 	std::stringstream ss;
@@ -130,6 +185,8 @@ CheckAsadResult GrawChecker::CheckAsad(int cobo, int asad) {
 			end_event_[cobo*4+asad] = event_id;
 			result.event = event_id;
 		}
+		// check size
+		result.size += std::filesystem::file_size(file);
 	}
 
 	return result;

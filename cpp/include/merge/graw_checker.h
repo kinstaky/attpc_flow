@@ -36,6 +36,8 @@ struct CheckAsadResult {
 	int event;
 	// Result type
 	AsadResultType type;
+	// size of files
+	size_t size;
 };
 
 /// @brief Result of checking graw file
@@ -51,12 +53,14 @@ struct CheckGrawResult {
 class GrawChecker {
 public:
 	/// @brief Constructor
-	/// @param[in] graw_dir graw directory
+	/// @param[in] task_id task id
 	/// @param[in] workspace_dir workspace directory
+	/// @param[in] graw_dir graw directory
 	/// @param[in] run run number
 	GrawChecker(
-		const std::filesystem::path &graw_dir,
+		int task_id,
 		const std::filesystem::path &workspace_dir,
+		const std::filesystem::path &graw_dir,
 		int run
 	);
 
@@ -67,12 +71,16 @@ public:
 	/// @returns CheckGrawResult
 	CheckGrawResult Check();
 private:
-	// Graw directory
-	std::filesystem::path graw_dir_;
+	// task id
+	int task_id_;
 	// workspace directory
 	std::filesystem::path workspace_dir_;
+	// Graw directory
+	std::filesystem::path graw_dir_;
 	// run number
 	int run_;
+	// total size of graw files
+	size_t total_size_;
 	// event counts
 	int event_counts_[42];
 	// first event's id

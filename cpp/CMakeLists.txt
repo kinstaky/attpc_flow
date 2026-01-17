@@ -42,6 +42,16 @@ if (CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
 endif()
 
 
+# find ZeroMQ
+find_package(ZeroMQ QUIET)
+# libzmq autotools install: fallback to pkg-config
+if(NOT ZeroMQ_FOUND)
+	message(STATUS "CMake libzmq package not found, trying again with pkg-config (normal install of zeromq)")
+	list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR} "${CMAKE_CURRENT_LIST_DIR}/cmake")
+	find_package(ZeroMQ REQUIRED)
+endif()
+
+
 function(show_config_options)
 	message("")
 	message("Build Properties")

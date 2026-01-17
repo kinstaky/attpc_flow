@@ -1,6 +1,7 @@
 import sys
 import json
 import os
+import logging
 
 from atflow import Processor
 import atflow.nodes
@@ -45,6 +46,7 @@ import atflow.nodes
 # 	]
 # }
 
+logging.basicConfig(level=logging.DEBUG)
 
 def main():
 	# Validate Command Line Arguments

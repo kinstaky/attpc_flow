@@ -31,6 +31,7 @@ class NodeRegistry:
 	def dispatch(
 		cls,
 		name:str,
+		task_id: int,
 		environment: dict,
 		inputs: dict,
 		properties: dict,
@@ -41,7 +42,7 @@ class NodeRegistry:
 			raise ValueError(f"Node {name} is not registered.")
 		info = entry.info
 
-		print(environment, inputs, properties)
+		# print(environment, inputs, properties)
 
 		# validate properties
 		if info.properties:
@@ -52,7 +53,7 @@ class NodeRegistry:
 		validated_properties = properties
 
 		# combine data
-		params = {**environment, **inputs, **validated_properties}
+		params = {"task_id": task_id, **environment, **inputs, **validated_properties}
 		if info.parameters:
 			try:
 				execution_kwargs = info.parameters(**params).model_dump()

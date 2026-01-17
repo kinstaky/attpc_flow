@@ -20,7 +20,7 @@ int main(int argc, char **argv) {
 	// run number
 	int run = std::stoi(argv[3]);
 	// check
-	atflow::GrawChecker checker(graw_dir, workspace_dir, run);
+	atflow::GrawChecker checker(0, workspace_dir, graw_dir, run);
 	atflow::CheckGrawResult result = checker.Check();
 	// show results
 	std::cout << (result.pass ? "Pass" : "Fail") << std::endl;

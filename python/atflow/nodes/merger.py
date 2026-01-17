@@ -7,6 +7,7 @@ class CheckGrawEventIdProperties(BaseModel):
 	graw_dir: str
 
 class CheckGrawEventIdParameters(CheckGrawEventIdProperties):
+	task_id: int
 	workspace_dir: str
 	run: int
 
@@ -20,8 +21,9 @@ class CheckGrawEventIdParameters(CheckGrawEventIdProperties):
 	)
 )
 class CheckGrawEventIdNode():
-	def execute(self, workspace_dir, graw_dir, run):
+	def execute(self, task_id, workspace_dir, graw_dir, run):
 		result = check_graw_event_id(
+			task_id=task_id,
 			graw_dir=graw_dir,
 			workspace_dir=workspace_dir,
 			run=run,

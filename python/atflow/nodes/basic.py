@@ -6,7 +6,7 @@ class ConstIntProperties(BaseModel):
 	value: List[int]
 
 class ConstIntParameters(ConstIntProperties):
-	pass
+	task_id: int
 
 @NodeRegistry.register(
 	name="const_int",
@@ -18,5 +18,5 @@ class ConstIntParameters(ConstIntProperties):
 	)
 )
 class ConstIntNode():
-	def execute(self, value):
+	def execute(self, task_id, value):
 		return [value]

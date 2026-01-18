@@ -3,8 +3,10 @@
 #include <filesystem>
 #include <vector>
 #include <algorithm>
+#include <memory>
 
 #include "include/merge/graw_checker.h"
+#include "include/common/text_progress_reporter.h"
 
 
 int main(int argc, char **argv) {
@@ -19,8 +21,9 @@ int main(int argc, char **argv) {
 	std::filesystem::path workspace_dir(argv[2]);
 	// run number
 	int run = std::stoi(argv[3]);
-	// check
-	atflow::GrawChecker checker(0, workspace_dir, graw_dir, run);
+	// check with text progress reporter
+	auto progress_reporter = std::make_unique<atflow::TextProgressReporter>("Checking graw files");
+	atflow::GrawChecker checker(workspace_dir, graw_dir, run, std::move(progress_reporter));
 	atflow::CheckGrawResult result = checker.Check();
 	// show results
 	std::cout << (result.pass ? "Pass" : "Fail") << std::endl;

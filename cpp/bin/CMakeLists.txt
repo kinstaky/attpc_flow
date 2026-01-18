@@ -1,2 +1,2 @@
 add_executable(check_graw check_graw.cpp)
-target_link_libraries(check_graw PUBLIC graw_checker)
+target_link_libraries(check_graw PUBLIC graw_checker text_progress_reporter)

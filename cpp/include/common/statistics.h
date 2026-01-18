@@ -7,7 +7,7 @@
 #include <sstream>
 #include <vector>
 
-#include "include/file_lock.h"
+#include "include/common/file_lock.h"
 
 namespace atflow {
 

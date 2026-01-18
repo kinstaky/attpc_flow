@@ -41,14 +41,26 @@ if (CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
 	set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 endif()
 
+# Option to enable ZeroMQ support (default OFF for standalone cpp build)
+# Only set default if not already defined (e.g., by parent CMakeLists.txt)
+if(NOT DEFINED ATTPC_FLOW_USE_ZMQ)
+	option(ATTPC_FLOW_USE_ZMQ "Enable ZeroMQ support for progress reporting" OFF)
+endif()
 
-# find ZeroMQ
-find_package(ZeroMQ QUIET)
-# libzmq autotools install: fallback to pkg-config
-if(NOT ZeroMQ_FOUND)
-	message(STATUS "CMake libzmq package not found, trying again with pkg-config (normal install of zeromq)")
-	list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR} "${CMAKE_CURRENT_LIST_DIR}/cmake")
-	find_package(ZeroMQ REQUIRED)
+# find ZeroMQ only if option is enabled
+if(ATTPC_FLOW_USE_ZMQ)
+	find_package(ZeroMQ QUIET)
+	# libzmq autotools install: fallback to pkg-config
+	if(NOT ZeroMQ_FOUND)
+		message(STATUS "CMake libzmq package not found, trying again with pkg-config (normal install of zeromq)")
+		list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_LIST_DIR} "${CMAKE_CURRENT_LIST_DIR}/cmake")
+		find_package(ZeroMQ REQUIRED)
+	endif()
+	# Add compile definition
+	add_compile_definitions(ATTPC_FLOW_USE_ZMQ)
+	message(STATUS "ZeroMQ support: ENABLED")
+else()
+	message(STATUS "ZeroMQ support: DISABLED")
 endif()
 
 

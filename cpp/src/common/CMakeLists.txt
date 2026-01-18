@@ -1,0 +1,12 @@
+# Text progress reporter (always available)
+add_library(text_progress_reporter text_progress_reporter.cpp)
+target_include_directories(text_progress_reporter PUBLIC ${PROJECT_SOURCE_DIR})
+set_target_properties(text_progress_reporter PROPERTIES POSITION_INDEPENDENT_CODE ON)
+
+# ZeroMQ progress reporter (only when ZMQ is enabled)
+if(ATTPC_FLOW_USE_ZMQ)
+	add_library(zmq_progress_reporter zmq_progress_reporter.cpp)
+	target_include_directories(zmq_progress_reporter PUBLIC ${PROJECT_SOURCE_DIR})
+	target_link_libraries(zmq_progress_reporter PUBLIC ZeroMQ::ZeroMQ)
+	set_target_properties(zmq_progress_reporter PROPERTIES POSITION_INDEPENDENT_CODE ON)
+endif()

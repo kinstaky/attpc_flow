@@ -2,9 +2,11 @@
 #define GRAW_CHECKER_H_
 
 #include <filesystem>
+#include <memory>
 #include <vector>
 
 #include "include/merge/graw.h"
+#include "include/common/progress_reporter.h"
 
 namespace atflow {
 
@@ -53,15 +55,15 @@ struct CheckGrawResult {
 class GrawChecker {
 public:
 	/// @brief Constructor
-	/// @param[in] task_id task id
 	/// @param[in] workspace_dir workspace directory
 	/// @param[in] graw_dir graw directory
 	/// @param[in] run run number
+	/// @param[in] progress_reporter optional progress reporter (nullptr for no progress reporting)
 	GrawChecker(
-		int task_id,
 		const std::filesystem::path &workspace_dir,
 		const std::filesystem::path &graw_dir,
-		int run
+		int run,
+		std::unique_ptr<ProgressReporter> progress_reporter = nullptr
 	);
 
 	/// @brief Default destructor
@@ -71,14 +73,14 @@ public:
 	/// @returns CheckGrawResult
 	CheckGrawResult Check();
 private:
-	// task id
-	int task_id_;
 	// workspace directory
 	std::filesystem::path workspace_dir_;
 	// Graw directory
 	std::filesystem::path graw_dir_;
 	// run number
 	int run_;
+	// progress reporter (nullable)
+	std::unique_ptr<ProgressReporter> progress_reporter_;
 	// total size of graw files
 	size_t total_size_;
 	// event counts

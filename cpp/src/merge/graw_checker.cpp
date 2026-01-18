@@ -1,11 +1,9 @@
 #include "include/merge/graw_checker.h"
-#include "include/statistics.h"
+#include "include/common/statistics.h"
 
 #include <algorithm>
 #include <iostream>
 #include <sstream>
-
-#include "ext/zmq.hpp"
 
 namespace atflow {
 
@@ -20,15 +18,15 @@ std::string AsadResultTypeToString(const AsadResultType &type) {
 }
 
 GrawChecker::GrawChecker(
-	int task_id,
 	const std::filesystem::path &workspace_dir,
 	const std::filesystem::path &graw_dir,
-	int run
+	int run,
+	std::unique_ptr<ProgressReporter> progress_reporter
 )
-: task_id_(task_id)
-, workspace_dir_(workspace_dir)
+: workspace_dir_(workspace_dir)
 , graw_dir_(graw_dir)
-, run_(run) {
+, run_(run)
+, progress_reporter_(std::move(progress_reporter)) {
 	// get total size
 	total_size_ = 0;
 	std::stringstream ss;
@@ -60,16 +58,9 @@ CheckGrawResult GrawChecker::Check() {
 	CheckGrawResult result;
 	result.pass = true;
 
-	// create zmq socket
-	std::stringstream msg;
-	msg << task_id_ << "," << 0;
-	zmq::context_t ctx;
-	zmq::socket_t publisher(ctx, zmq::socket_type::push);
-	publisher.connect("ipc://@attpc_flow_zmq");
-	try {
-		publisher.send(zmq::buffer(msg.str()), zmq::send_flags::dontwait);
-	} catch (const zmq::error_t &e) {
-		std::cerr << "Error: " << e.what() << std::endl;
+	// report start if progress reporter is available
+	if (progress_reporter_) {
+		progress_reporter_->report_progress(0);
 	}
 
 	// check size
@@ -87,22 +78,18 @@ CheckGrawResult GrawChecker::Check() {
 		// check size
 		check_size += asad_result.size;
 
-		msg.str("");
-		msg << task_id_ << "," << int(check_size * 100.0 / total_size_);
-		// publish progress
-		try {
-			publisher.send(zmq::buffer(msg.str()), zmq::send_flags::dontwait);
-		} catch (const zmq::error_t &e) {
-			std::cerr << "Error: " << e.what() << std::endl;
+		// report progress if progress reporter is available
+		if (progress_reporter_ && total_size_ > 0) {
+			int percentage = static_cast<int>(check_size * 100.0 / total_size_);
+			progress_reporter_->report_progress(percentage);
 		}
 	}
-	msg.str("");
-	msg << task_id_ << "," << 100;
-	try {
-		publisher.send(zmq::buffer(msg.str()), zmq::send_flags::dontwait);
-	} catch (const zmq::error_t &e) {
-		std::cerr << "Error: " << e.what() << std::endl;
+
+	// report completion if progress reporter is available
+	if (progress_reporter_) {
+		progress_reporter_->report_progress(100);
 	}
+
 	CheckEventId(start_event_, result);
 	CheckEventId(end_event_, result);
 	// record

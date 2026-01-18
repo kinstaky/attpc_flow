@@ -1,6 +1,9 @@
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/string.h>
+#include <memory>
 #include "include/merge/graw_checker.h"
+
+#include "include/common/zmq_progress_reporter.h"
 
 namespace nb = nanobind;
 using namespace nb::literals;
@@ -11,7 +14,20 @@ bool check_graw_event_id(
 	std::string graw_dir,
 	int run
 ) {
-	atflow::GrawChecker checker(task_id, workspace_dir, graw_dir, run);
+	std::unique_ptr<atflow::ProgressReporter> progress_reporter = nullptr;
+	
+	if (task_id >= 0) {
+		progress_reporter = std::make_unique<atflow::ZmqProgressReporter>(
+			task_id, "ipc://@attpc_flow_zmq"
+		);
+	}
+
+	atflow::GrawChecker checker(
+		workspace_dir,
+		graw_dir,
+		run,
+		std::move(progress_reporter)
+	);
 	atflow::CheckGrawResult result = checker.Check();
 	return result.pass;
 }

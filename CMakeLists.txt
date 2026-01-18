@@ -56,6 +56,10 @@ find_package(Python 3.9
 # Import nanobind through CMake's find_package mechanism
 find_package(nanobind CONFIG REQUIRED)
 
+# Set ZeroMQ option to ON for Python extension build
+# The actual finding will be done by cpp/CMakeLists.txt
+set(ATTPC_FLOW_USE_ZMQ ON CACHE BOOL "Enable ZeroMQ support for progress reporting")
+
 function(show_config_options)
 	message("")
 	message("Build Properties")

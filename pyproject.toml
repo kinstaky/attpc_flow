@@ -2,8 +2,6 @@
 requires = [
     "scikit-build-core >=0.10",
     "nanobind >=2.10.2",
-    "pydantic >=2.12",
-    "pyzmq >=27.1.0"
 ]
 build-backend = "scikit_build_core.build"
 
@@ -20,6 +18,8 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
 ]
 dependencies = [
+    "pydantic >=2.12",
+    "pyzmq >=27.1.0",
     "tqdm >=4.66.0",
 ]
 

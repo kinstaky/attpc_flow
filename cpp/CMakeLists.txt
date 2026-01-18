@@ -10,6 +10,8 @@ project(
 	LANGUAGES CXX
 )
 
+cmake_policy(SET CMP0135 NEW)
+
 # Require out-of-source builds
 file(TO_CMAKE_PATH "${PROJECT_BINARY_DIR}/CMakeLists.txt" LOC_PATH)
 if (EXISTS "${LOC_PATH}")
@@ -33,6 +35,7 @@ if (CMAKE_PROJECT_NAME STREQUAL PROJECT_NAME)
 
 	# Set the default cxx standard
 	set(CMAKE_CXX_STANDARD 17)
+	set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 	# Set default compile options
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Werror -Wall -Wextra")
@@ -63,6 +66,8 @@ else()
 	message(STATUS "ZeroMQ support: DISABLED")
 endif()
 
+# Option to enable tests (default OFF for development)
+option(BUILD_TESTS "Build unit tests" OFF)
 
 function(show_config_options)
 	message("")
@@ -71,6 +76,9 @@ function(show_config_options)
 	message("  c++ stardard.................: " ${CMAKE_CXX_STANDARD})
 	message("  cmake........................: " ${CMAKE_VERSION})
 	message("  cmake build type.............: " ${CMAKE_BUILD_TYPE})
+	message("Build Options")
+	message("  ZeroMQ support...............: " ${ATTPC_FLOW_USE_ZMQ})
+	message("  Build tests..................: " ${BUILD_TESTS})
 	message("")
 endfunction()
 
@@ -78,3 +86,7 @@ show_config_options()
 
 add_subdirectory(src)
 add_subdirectory(bin)
+if(BUILD_TESTS)
+	enable_testing()
+	add_subdirectory(tests)
+endif()

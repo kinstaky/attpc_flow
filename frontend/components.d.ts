@@ -11,9 +11,7 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
-    ATFlow: typeof import('./src/components/ATFlow.vue')['default']
     ATTPCFlow: typeof import('./src/components/ATTPCFlow.vue')['default']
-    ComfyUI: typeof import('./src/components/ComfyUI.vue')['default']
     HelloWorld: typeof import('./src/components/HelloWorld.vue')['default']
     SideNav: typeof import('./src/components/SideNav.vue')['default']
     TopAppBar: typeof import('./src/components/TopAppBar.vue')['default']

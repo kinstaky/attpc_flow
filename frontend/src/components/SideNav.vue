@@ -1,9 +1,13 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
 import { useTheme } from 'vuetify'
 
 const theme = useTheme()
 const isDark = ref(true)
+const showNodesPanel = ref(false)
+const showWorkflowsPanel = ref(false)
+const nodeCategories = ref<Record<string, string[]>>({})
+const workflows = ref<string[]>([])
 
 const toggleTheme = () => {
   isDark.value = !isDark.value
@@ -11,19 +15,49 @@ const toggleTheme = () => {
 }
 
 const openNodesLibrary = () => {
-  // Placeholder for nodes library popup
-  console.log('Open nodes library')
+  showNodesPanel.value = !showNodesPanel.value
+  showWorkflowsPanel.value = false
+  console.log('Toggle nodes library panel')
 }
 
 const openWorkflows = () => {
-  // Placeholder for workflows popup
-  console.log('Open workflows')
+  showWorkflowsPanel.value = !showWorkflowsPanel.value
+  showNodesPanel.value = false
+  console.log('Toggle workflows panel')
 }
 
 const openSettings = () => {
   // Placeholder for settings
   console.log('Open settings')
 }
+
+// Fetch data from server
+const fetchNodes = async () => {
+  try {
+    const response = await fetch('/nodes')
+    if (response.ok) {
+      nodeCategories.value = await response.json()
+    }
+  } catch (error) {
+    console.error('Failed to fetch nodes:', error)
+  }
+}
+
+const fetchWorkflows = async () => {
+  try {
+    const response = await fetch('/workflows')
+    if (response.ok) {
+      workflows.value = await response.json()
+    }
+  } catch (error) {
+    console.error('Failed to fetch workflows:', error)
+  }
+}
+
+onMounted(() => {
+  fetchNodes()
+  fetchWorkflows()
+})
 </script>
 
 <template>
@@ -44,7 +78,7 @@ const openSettings = () => {
           @click="openNodesLibrary"
         >
           <v-icon>mdi-shape-outline</v-icon>
-          <v-tooltip activator="parent" location="end">Nodes Library</v-tooltip>
+          <v-tooltip activator="parent" location="end">Nodes</v-tooltip>
         </v-btn>
 
         <v-btn
@@ -87,6 +121,75 @@ const openSettings = () => {
       </div>
     </div>
   </v-navigation-drawer>
+
+  <!-- Nodes Library Panel -->
+  <v-navigation-drawer
+    v-model="showNodesPanel"
+    temporary
+    width="280"
+    location="left"
+    class="nodes-panel"
+  >
+    <v-toolbar flat>
+      <span class="text-h6 pl-4">Nodes</span>
+      <v-spacer></v-spacer>
+      <v-btn icon variant="text" @click="showNodesPanel = false">
+        <v-icon>mdi-close</v-icon>
+      </v-btn>
+    </v-toolbar>
+
+    <div class="pa-3">
+      <v-expansion-panels variant="accordion" multiple>
+        <v-expansion-panel v-for="(nodes, category) in nodeCategories" :key="category as string">
+          <v-expansion-panel-title>
+            {{ category }}
+          </v-expansion-panel-title>
+          <v-expansion-panel-text>
+            <div class="d-flex flex-column ga-2">
+              <v-chip
+                v-for="node in nodes"
+                :key="node"
+                size="small"
+                variant="outlined"
+                class="justify-start"
+                draggable
+              >
+                {{ node }}
+              </v-chip>
+            </div>
+          </v-expansion-panel-text>
+        </v-expansion-panel>
+      </v-expansion-panels>
+    </div>
+  </v-navigation-drawer>
+
+  <!-- Workflows Panel -->
+  <v-navigation-drawer
+    v-model="showWorkflowsPanel"
+    temporary
+    width="280"
+    location="left"
+    class="workflows-panel"
+  >
+    <v-toolbar flat>
+      <span class="text-h6 pl-4">Workflows</span>
+      <v-spacer></v-spacer>
+      <v-btn icon variant="text" @click="showWorkflowsPanel = false">
+        <v-icon>mdi-close</v-icon>
+      </v-btn>
+    </v-toolbar>
+
+    <div class="pa-3">
+      <v-list density="compact" nav>
+        <v-list-item v-for="workflow in workflows" :key="workflow">
+          <template v-slot:prepend>
+            <v-icon>mdi-file-outline</v-icon>
+          </template>
+          <v-list-item-title>{{ workflow }}</v-list-item-title>
+        </v-list-item>
+      </v-list>
+    </div>
+  </v-navigation-drawer>
 </template>
 
 <style scoped>
@@ -94,12 +197,9 @@ const openSettings = () => {
   border-right: 1px solid rgba(var(--v-border-color), var(--v-border-opacity));
 }
 
-/* Change ripple effect to rounded rectangle */
-:deep(.v-btn--variant-text .v-btn__overlay) {
-  border-radius: 8px;
-}
-
-:deep(.v-btn--variant-text .v-ripple__container) {
-  border-radius: 8px;
+/* Position the panels to the right of the side nav */
+:deep(.nodes-panel),
+:deep(.workflows-panel) {
+  left: 56px !important;
 }
 </style>

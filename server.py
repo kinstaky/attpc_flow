@@ -6,6 +6,7 @@ Provides RESTful API for node registry and workflow operations.
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from typing import Dict, List, Optional, Any
@@ -25,11 +26,14 @@ app = FastAPI(
 # Enable CORS for frontend development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify actual origins
+    allow_origins=["http://localhost:3000"],  # In production, specify actual origins
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Mount static files for frontend
+app.mount("/assets", StaticFiles(directory="frontend/dist/assets"), name="assets")
 
 # Data models
 class NodeResponse(BaseModel):
@@ -113,7 +117,22 @@ def organize_nodes_by_category() -> Dict[str, List[str]]:
 # API Endpoints
 @app.get("/")
 async def root():
-    """Root endpoint with API information."""
+    """Serve the frontend index.html."""
+    try:
+        return FileResponse("frontend/dist/index.html")
+    except FileNotFoundError:
+        return {
+            "message": "ATTPC Flow API",
+            "version": "0.1.0",
+            "docs": "/docs",
+            "nodes": "/nodes",
+            "workflows": "/workflows",
+            "note": "Frontend not built. Run 'npm run build' in frontend directory."
+        }
+
+@app.get("/api")
+async def api_info():
+    """API information endpoint."""
     return {
         "message": "ATTPC Flow API",
         "version": "0.1.0",

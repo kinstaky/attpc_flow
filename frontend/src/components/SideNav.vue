@@ -6,6 +6,7 @@ const theme = useTheme()
 const isDark = ref(true)
 const showNodesPanel = ref(false)
 const showWorkflowsPanel = ref(false)
+const showMenu = ref(false)
 const nodeCategories = ref<Record<string, string[]>>({})
 const workflows = ref<string[]>([])
 
@@ -68,8 +69,49 @@ onMounted(() => {
     class="side-nav"
   >
     <div class="d-flex flex-column h-100">
-      <!-- Top section with icon buttons -->
-      <div class="pa-2">
+      <!-- Top buttons -->
+      <div class="d-flex flex-column ga-2 pa-2">
+        <!-- Menu button -->
+        <v-menu v-model="showMenu" :close-on-content-click="false">
+          <template v-slot:activator="{ props }">
+            <v-btn
+              icon
+              variant="text"
+              size="default"
+              v-bind="props"
+            >
+              <v-icon>mdi-menu</v-icon>
+              <v-tooltip activator="parent" location="end">Menu</v-tooltip>
+            </v-btn>
+          </template>
+          <v-list density="compact" nav>
+            <v-list-item @click="toggleTheme">
+              <template v-slot:prepend>
+                <v-icon>{{ isDark ? 'mdi-brightness-4' : 'mdi-brightness-6' }}</v-icon>
+              </template>
+              <v-list-item-title>Theme</v-list-item-title>
+            </v-list-item>
+            <v-list-item>
+              <template v-slot:prepend>
+                <v-icon>mdi-help-circle-outline</v-icon>
+              </template>
+              <v-list-item-title>Help</v-list-item-title>
+            </v-list-item>
+            <v-list-item>
+              <template v-slot:prepend>
+                <v-icon>mdi-information-outline</v-icon>
+              </template>
+              <v-list-item-title>About</v-list-item-title>
+            </v-list-item>
+            <v-list-item @click="openSettings">
+              <template v-slot:prepend>
+                <v-icon>mdi-cog</v-icon>
+              </template>
+              <v-list-item-title>Settings</v-list-item-title>
+            </v-list-item>
+          </v-list>
+        </v-menu>
+
         <v-btn
           icon
           variant="text"
@@ -77,7 +119,7 @@ onMounted(() => {
           class="mb-2"
           @click="openNodesLibrary"
         >
-          <v-icon>mdi-shape-outline</v-icon>
+          <v-icon>mdi-transit-connection-variant</v-icon>
           <v-tooltip activator="parent" location="end">Nodes</v-tooltip>
         </v-btn>
 
@@ -93,32 +135,6 @@ onMounted(() => {
       </div>
 
       <v-spacer></v-spacer>
-
-      <!-- Bottom section with controls -->
-      <div class="pa-2">
-        <v-btn
-          icon
-          variant="text"
-          size="default"
-          class="mb-2"
-          @click="toggleTheme"
-        >
-          <v-icon>{{ isDark ? 'mdi-brightness-4' : 'mdi-brightness-6' }}</v-icon>
-          <v-tooltip activator="parent" location="end">
-            {{ isDark ? 'Switch to Light' : 'Switch to Dark' }}
-          </v-tooltip>
-        </v-btn>
-
-        <v-btn
-          icon
-          variant="text"
-          size="default"
-          @click="openSettings"
-        >
-          <v-icon>mdi-cog</v-icon>
-          <v-tooltip activator="parent" location="end">Settings</v-tooltip>
-        </v-btn>
-      </div>
     </div>
   </v-navigation-drawer>
 
@@ -201,5 +217,21 @@ onMounted(() => {
 :deep(.nodes-panel),
 :deep(.workflows-panel) {
   left: 56px !important;
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  :deep(.nodes-panel),
+  :deep(.workflows-panel) {
+    width: 240px !important;
+  }
+}
+
+@media (max-width: 480px) {
+  :deep(.nodes-panel),
+  :deep(.workflows-panel) {
+    width: 100vw !important;
+    left: 48px !important;
+  }
 }
 </style>

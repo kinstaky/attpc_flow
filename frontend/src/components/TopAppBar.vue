@@ -1,116 +1,31 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue'
-import { workflowState, activeTabId } from '../stores/workflow'
+import {
+  activeTabId,
+  tabs,
+  setActiveTab,
+  isTabAttached,
+  getTabName,
+  addNewTab,
+  deleteTab as deleteTabFromStore,
+  handleDragStart,
+  handleDragOver,
+  handleDrop,
+  handleDragEnd
+} from '../stores/tabs'
 
-const emit = defineEmits<{
-  tabChanged: [name: string]
-}>()
-
-// Local state
-const draggedTab = ref<string | null>(null)
-const workflowTabs = ref([
-  { id: 'tab1', name: 'untitled' }
-])
-let tabCounter = 1
-
-// Methods
-const getTabName = (tabId: string) => {
-  const tab = workflowTabs.value.find(t => t.id === tabId)
-  return tab?.name || 'untitled'
-}
-
-const addNewTab = () => {
-  tabCounter++
-  const newTab = {
-    id: `tab${tabCounter}`,
-    name: 'untitled'
-  }
-  workflowTabs.value.push(newTab)
-  workflowState.setActiveTab(newTab.id, newTab.name)
+// Local methods
+const handleTabSwitch = (newTabId: string, event?: MouseEvent) => {
+  setActiveTab(newTabId)
 }
 
 const deleteTab = (tabId: string, event: MouseEvent) => {
   event.stopPropagation()
-
   // Can only delete the selected tab
   if (activeTabId.value !== tabId) {
     return
   }
-
-  if (workflowTabs.value.length > 1) {
-    const index = workflowTabs.value.findIndex(t => t.id === tabId)
-    if (index !== -1) {
-      workflowTabs.value.splice(index, 1)
-      // Select adjacent tab
-      if (index >= workflowTabs.value.length) {
-        const lastTab = workflowTabs.value[workflowTabs.value.length - 1]
-        if (lastTab) {
-          workflowState.setActiveTab(lastTab.id, lastTab.name)
-        }
-      } else {
-        const nextTab = workflowTabs.value[index]
-        if (nextTab) {
-          workflowState.setActiveTab(nextTab.id, nextTab.name)
-        }
-      }
-    }
-  }
+  deleteTabFromStore(tabId)
 }
-
-const handleTabSwitch = (newTabId: string, event?: MouseEvent) => {
-  const tabName = getTabName(newTabId)
-  workflowState.setActiveTab(newTabId, tabName)
-}
-
-const updateCurrentTabName = (name: string) => {
-  const tab = workflowTabs.value.find(t => t.id === activeTabId.value)
-  if (tab) {
-    tab.name = name
-    workflowState.updateActiveTabName(name)
-  }
-}
-
-// Watch for active tab changes and emit event
-watch(activeTabId, () => {
-  emit('tabChanged', workflowState.activeTabName)
-}, { immediate: true })
-
-// Drag and drop handlers
-const handleDragStart = (event: DragEvent, tabId: string) => {
-  draggedTab.value = tabId
-  event.dataTransfer?.setData('text/plain', tabId)
-}
-
-const handleDragOver = (event: DragEvent) => {
-  event.preventDefault()
-}
-
-const handleDrop = (event: DragEvent, targetTabId: string) => {
-  event.preventDefault()
-  if (draggedTab.value && draggedTab.value !== targetTabId) {
-    const draggedIndex = workflowTabs.value.findIndex(t => t.id === draggedTab.value)
-    const targetIndex = workflowTabs.value.findIndex(t => t.id === targetTabId)
-
-    if (draggedIndex !== -1 && targetIndex !== -1) {
-      const [draggedItem] = workflowTabs.value.splice(draggedIndex, 1)
-      if (draggedItem) {
-        workflowTabs.value.splice(targetIndex, 0, draggedItem)
-      }
-    }
-  }
-  draggedTab.value = null
-}
-
-const handleDragEnd = () => {
-  draggedTab.value = null
-}
-
-// Expose methods for parent
-defineExpose({
-  getActiveTabName: () => workflowState.activeTabName,
-  addNewTab,
-  updateCurrentTabName
-})
 </script>
 
 <template>
@@ -128,7 +43,7 @@ defineExpose({
           class="workflow-tabs"
         >
           <v-tab
-            v-for="tab in workflowTabs"
+            v-for="tab in tabs"
             :key="tab.id"
             :value="tab.id"
             class="custom-tab"
@@ -140,7 +55,12 @@ defineExpose({
             @dragend="handleDragEnd"
           >
             <div class="d-flex align-center ga-2">
-              <span>{{ tab.name }}</span>
+              <span>{{ getTabName(tab.id) }}</span>
+              <span
+                v-if="!isTabAttached(tab.id)"
+                class="unsaved-indicator"
+                title="Not saved to file"
+              >•</span>
               <v-btn
                 icon="mdi-close"
                 variant="text"
@@ -210,6 +130,14 @@ defineExpose({
   background-color: rgba(var(--v-theme-primary), 0.12);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
   transform: translateY(-3px);
+}
+
+/* Unsaved tab indicator */
+.unsaved-indicator {
+  color: #ff9800;
+  font-size: 1.2rem;
+  margin-left: 4px;
+  opacity: 0.8;
 }
 
 /* Tab delete button - always visible when tab is selected */

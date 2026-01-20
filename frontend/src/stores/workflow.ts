@@ -1,21 +1,11 @@
-import { reactive, toRefs } from 'vue'
+import { reactive } from 'vue'
 
-// Reactive state store - only shared state that needs to be accessed across components
-export const workflowState = reactive({
-  // Active tab state - shared between TopAppBar and FloatingButtons
-  activeTabId: 'tab1',
-  activeTabName: 'untitled',
+// Workflow-specific state (not tab state)
+interface WorkflowState {
+  // Add workflow-specific properties here as needed
+  // For now, this can be empty or contain workflow-specific data
+}
 
-  // Methods
-  setActiveTab(tabId: string, tabName: string) {
-    this.activeTabId = tabId
-    this.activeTabName = tabName
-  },
+const workflowState = reactive<WorkflowState>({})
 
-  updateActiveTabName(name: string) {
-    this.activeTabName = name
-  }
-})
-
-// Export reactive refs for direct access
-export const { activeTabId, activeTabName } = toRefs(workflowState)
+export { workflowState }

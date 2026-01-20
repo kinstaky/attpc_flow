@@ -62,11 +62,10 @@ class WorkflowConnection(BaseModel):
     target_input: str
 
 class Workflow(BaseModel):
-    id: Optional[str] = None
     name: str
-    description: Optional[str] = ""
-    nodes: List[WorkflowNode]
-    connections: List[WorkflowConnection] = []
+    # description: Optional[str] = ""
+    # nodes: List[WorkflowNode]
+    # connections: List[WorkflowConnection] = []
 
 class WorkflowExecution(BaseModel):
     workflow_id: str
@@ -189,12 +188,8 @@ async def list_workflows():
 async def create_workflow(workflow: Workflow):
     """Create or save a workflow."""
     try:
-        # Generate ID if not provided
-        if not workflow.id:
-            workflow.id = workflow.name.lower().replace(" ", "_")
-
         # Save to file
-        file_path = WORKFLOWS_DIR / f"{workflow.id}.json"
+        file_path = WORKFLOWS_DIR / f"{workflow.name}.json"
         with open(file_path, 'w') as f:
             json.dump(workflow.model_dump(), f, indent=2)
 

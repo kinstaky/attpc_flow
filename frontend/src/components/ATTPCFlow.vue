@@ -1,47 +1,12 @@
 <script setup lang="ts">
-import { ref } from 'vue'
 import TopAppBar from './TopAppBar.vue'
 import SideNav from './SideNav.vue'
 import FloatingButtons from './FloatingButtons.vue'
-
-const topAppBarRef = ref<InstanceType<typeof TopAppBar>>()
-
-// Handle workflow actions from FloatingButtons
-const handleWorkflowAction = (action: string, data?: any) => {
-  switch (action) {
-    case 'duplicate':
-      if (topAppBarRef.value) {
-        topAppBarRef.value.addNewTab()
-      }
-      break
-    case 'save':
-      console.log('Save workflow:', data)
-      // TODO: Implement actual save
-      break
-    case 'saveAs':
-      console.log('Save as workflow')
-      // TODO: Implement save as dialog
-      break
-    case 'rename':
-      if (topAppBarRef.value && data) {
-        topAppBarRef.value.updateCurrentTabName(data)
-      }
-      break
-    case 'delete':
-      console.log('Delete workflow:', data)
-      // TODO: Implement actual delete
-      break
-    case 'run':
-      console.log('Run workflow')
-      // TODO: Implement run workflow
-      break
-  }
-}
 </script>
 
 <template>
   <v-app class="attp-flow">
-    <TopAppBar ref="topAppBarRef" />
+    <TopAppBar />
 
     <SideNav />
 
@@ -57,7 +22,7 @@ const handleWorkflowAction = (action: string, data?: any) => {
       </div>
 
       <!-- Floating Buttons Component -->
-      <FloatingButtons @workflow-action="handleWorkflowAction" />
+      <FloatingButtons />
     </v-main>
   </v-app>
 </template>

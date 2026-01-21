@@ -80,13 +80,27 @@ export const deleteWorkflow = async (name: string) => {
 export const getExistingWorkflows = async (): Promise<string[]> => {
   try {
     const response = await fetch(`${API_BASE}/workflows`)
-    if (response.ok) {
-      return await response.json()
+    if (!response.ok) {
+      throw new Error(`Failed to fetch workflows: ${response.statusText}`)
     }
-    return []
+    const workflows = await response.json()
+    return workflows.map((w: any) => w.name)
   } catch (error) {
-    console.error('Failed to fetch workflows:', error)
+    console.error('Error fetching workflows:', error)
     return []
+  }
+}
+
+export const getWorkflow = async (workflowName: string) => {
+  try {
+    const response = await fetch(`${API_BASE}/workflows/${workflowName}`)
+    if (!response.ok) {
+      throw new Error(`Failed to get workflow: ${response.statusText}`)
+    }
+    return await response.json()
+  } catch (error) {
+    console.error('Error getting workflow:', error)
+    throw error
   }
 }
 
@@ -100,11 +114,11 @@ export const workflowNameExists = async (name: string): Promise<boolean> => {
 export const saveWorkflow = async (tabId?: string) => {
   const currentTabId = tabId || activeTabId.value
   const workflowName = activeTabName.value
-  
+
   if (!workflowName) {
     return { success: false, needsName: true }
   }
-  
+
   // Check if name already exists for unattached tabs
   const isAttached = await isTabAttached(currentTabId)
   if (!isAttached) {
@@ -113,13 +127,13 @@ export const saveWorkflow = async (tabId?: string) => {
       return { success: false, nameConflict: true, existingName: workflowName }
     }
   }
-  
+
   // Save the workflow
   const success = await createWorkflow(workflowName)
   if (success) {
     attachTab(currentTabId)
   }
-  
+
   return { success, needsName: false, nameConflict: false }
 }
 
@@ -131,13 +145,13 @@ export const renameWorkflow = async (oldName: string, newName: string) => {
     if (!createSuccess) {
       return false
     }
-    
+
     // Delete old workflow
     await deleteWorkflow(oldName)
-    
+
     // Update tab name
     updateActiveTabName(newName)
-    
+
     console.log('Workflow renamed successfully:', oldName, '->', newName)
     return true
   } catch (error) {

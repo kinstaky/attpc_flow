@@ -61,15 +61,15 @@ const deleteTab = (tabId: string, event: MouseEvent) => {
   if (activeTabId.value !== tabId) {
     return
   }
-  
+
   // Check if another dialog is already active
   if (dialogs.value.active) {
     return
   }
-  
+
   // Store which tab we're trying to close
   dialogs.value.close.tabToClose = tabId
-  
+
   // Check if tab is saved
   if (!isTabAttached(tabId)) {
     // Unsaved tab - ask to save
@@ -91,7 +91,7 @@ const performCloseTab = (tabId: string) => {
 const handleCloseDialogSave = async () => {
   const tabId = dialogs.value.close.tabToClose
   const workflowName = activeTabName.value
-  
+
   if (!workflowName) {
     // Unnamed workflow - show dialog to enter name
     dialogs.value.name.input = ''
@@ -112,23 +112,23 @@ const handleCloseDialogSave = async () => {
     dialogs.value.active = 'name'
     return
   }
-  
+
   // Clear the active dialog
   dialogs.value.active = null
-  
+
   // Named workflow - save it
   const nameExists = await workflowNameExists(workflowName)
   if (nameExists) {
     // Name already exists, show error but still close
     console.error('Workflow name already exists')
   }
-  
+
   // Save the workflow
   const success = await createWorkflow(workflowName)
   if (success) {
     attachTab(tabId)
   }
-  
+
   // Close the tab after saving
   performCloseTab(tabId)
 }
@@ -186,7 +186,7 @@ const handleDrop = (event: DragEvent, targetTabId: string) => {
       const [draggedItem] = currentTabs.splice(draggedIndex, 1)
       if (draggedItem) {
         currentTabs.splice(targetIndex, 0, draggedItem)
-        
+
         // Update the tabs array in the store
         // Since tabs is a reactive array, we need to modify it directly
         tabs.value.splice(0, tabs.value.length, ...currentTabs)

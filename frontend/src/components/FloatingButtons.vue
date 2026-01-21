@@ -60,7 +60,7 @@ const saveWorkflow = async () => {
   const workflowName = currentWorkflow.value?.trim()
   const currentTabId = activeTabId.value
   const isAttachedTab = isTabAttached(currentTabId)
-  
+
   if (isAttachedTab) {
     // Attached tab: just update
     if (workflowName) {
@@ -77,7 +77,7 @@ const saveWorkflow = async () => {
       dialogs.value.name.show = true
       return
     }
-    
+
     // Check if name already exists
     const nameExists = await workflowNameExists(workflowName)
     if (nameExists) {
@@ -89,14 +89,14 @@ const saveWorkflow = async () => {
       dialogs.value.name.show = true
       return
     }
-    
+
     // Name doesn't exist, proceed with save
     const success = await createWorkflow(workflowName)
     if (success) {
       attachTab(currentTabId)
     }
   }
-  
+
   showWorkflowMenu.value = false
 }
 
@@ -202,7 +202,7 @@ const handleDeleteWorkflow = () => {
   const currentTabId = activeTabId.value
   const workflowName = currentWorkflow.value
   const isAttached = isTabAttached(currentTabId)
-  
+
   if (isAttached && workflowName) {
     // Attached tab - set up delete confirmation for workflow
     dialogs.value.delete.title = 'Delete Workflow'
@@ -216,7 +216,7 @@ const handleDeleteWorkflow = () => {
     dialogs.value.delete.workflowName = ''
     dialogs.value.delete.isAttached = false
   }
-  
+
   // Show the delete confirmation dialog
   dialogs.value.delete.show = true
   showWorkflowMenu.value = false
@@ -265,10 +265,10 @@ const handleDialogCancel = () => {
 const handleDeleteConfirm = async () => {
   const currentTabId = activeTabId.value
   const { workflowName, isAttached } = dialogs.value.delete
-  
+
   // Hide the dialog
   dialogs.value.delete.show = false
-  
+
   if (isAttached && workflowName) {
     // Attached tab - delete workflow from server
     try {

@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useTheme } from 'vuetify'
+import { addNewTab, setActiveTab, attachTab, updateActiveTabName, activeTabId, activeTabName, isTabAttached } from '../stores/tabs'
+import { getWorkflow } from '../services/workflow'
 
 const theme = useTheme()
 const isDark = ref(true)
@@ -21,9 +23,15 @@ const openNodesLibrary = () => {
   console.log('Toggle nodes library panel')
 }
 
-const openWorkflows = () => {
+const openWorkflows = async () => {
   showWorkflowsPanel.value = !showWorkflowsPanel.value
   showNodesPanel.value = false
+
+  // Always refresh workflows when opening the panel
+  if (showWorkflowsPanel.value) {
+    await fetchWorkflows()
+  }
+
   console.log('Toggle workflows panel')
 }
 
@@ -52,6 +60,46 @@ const fetchWorkflows = async () => {
     }
   } catch (error) {
     console.error('Failed to fetch workflows:', error)
+  }
+}
+
+const openWorkflow = async (workflowName: string) => {
+  try {
+    // Get workflow data from server
+    const workflowData = await getWorkflow(workflowName)
+
+    // Check if active tab is empty (null name, unattached)
+    const currentTabId = activeTabId.value
+    const currentTabName = activeTabName.value
+    const isAttachedTab = isTabAttached(currentTabId)
+
+    let targetTabId: string
+
+    if (!currentTabName && !isAttachedTab) {
+      // Reuse the empty active tab
+      targetTabId = currentTabId
+    } else {
+      // Create a new tab
+      addNewTab()
+      targetTabId = activeTabId.value
+    }
+
+    // Set the tab name to match the workflow
+    updateActiveTabName(workflowName)
+
+    // Mark the tab as attached (saved)
+    attachTab(targetTabId)
+
+    // TODO: Import workflow data into the tab's content
+    // This depends on how you store the actual workflow graph/data
+    // You might need to emit an event or call a method to load the data
+    console.log('Opened workflow:', workflowName, 'in tab:', targetTabId)
+    console.log('Workflow data:', workflowData)
+
+    // Close the workflows submenu
+    showWorkflowsPanel.value = false
+  } catch (error) {
+    console.error('Failed to open workflow:', error)
   }
 }
 
@@ -190,6 +238,14 @@ onMounted(() => {
     <v-toolbar flat>
       <span class="text-h6 pl-4">Workflows</span>
       <v-spacer></v-spacer>
+      <v-btn
+        icon
+        variant="text"
+        @click="fetchWorkflows"
+        title="Refresh workflows"
+      >
+        <v-icon>mdi-refresh</v-icon>
+      </v-btn>
       <v-btn icon variant="text" @click="showWorkflowsPanel = false">
         <v-icon>mdi-close</v-icon>
       </v-btn>
@@ -197,7 +253,12 @@ onMounted(() => {
 
     <div class="pa-3">
       <v-list density="compact" nav>
-        <v-list-item v-for="workflow in workflows" :key="workflow">
+        <v-list-item
+          v-for="workflow in workflows"
+          :key="workflow"
+          @click="openWorkflow(workflow)"
+          class="workflow-item"
+        >
           <template v-slot:prepend>
             <v-icon>mdi-file-outline</v-icon>
           </template>
@@ -217,6 +278,15 @@ onMounted(() => {
 :deep(.nodes-panel),
 :deep(.workflows-panel) {
   left: 56px !important;
+}
+
+/* Workflow items hover effect */
+.workflow-item {
+  cursor: pointer;
+}
+
+.workflow-item:hover {
+  background-color: rgba(var(--v-theme-surface-variant), 0.12);
 }
 
 /* Responsive adjustments */

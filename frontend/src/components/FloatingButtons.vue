@@ -1,6 +1,15 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, watch } from 'vue'
-import { activeTabName, activeTabId, isTabAttached, getOtherTabNames, addNewTab, updateActiveTabName, attachTab } from '../stores/tabs'
+import {
+  activeTabName,
+  activeTabId,
+  isTabAttached,
+  getOtherTabNames,
+  addNewTab,
+  updateActiveTabName,
+  attachTab,
+  deleteTab
+} from '../stores/tabs'
 import { createWorkflow, updateWorkflow, deleteWorkflow, getExistingWorkflows, workflowNameExists, saveWorkflow as saveWorkflowService } from '../services/workflow'
 
 // Local state
@@ -22,6 +31,14 @@ const dialogs = ref({
     message: '',
     input: '',
     hasError: false
+  },
+  // Delete confirmation dialog
+  delete: {
+    show: false,
+    title: '',
+    message: '',
+    workflowName: '',
+    isAttached: false
   }
 })
 
@@ -182,10 +199,27 @@ const handleRenameAttached = async (oldName: string, newName: string) => {
 }
 
 const handleDeleteWorkflow = () => {
-  if (confirm(`Are you sure you want to delete workflow "${currentWorkflow.value}"?`)) {
-    console.log('Delete workflow:', currentWorkflow.value)
-    showWorkflowMenu.value = false
+  const currentTabId = activeTabId.value
+  const workflowName = currentWorkflow.value
+  const isAttached = isTabAttached(currentTabId)
+  
+  if (isAttached && workflowName) {
+    // Attached tab - set up delete confirmation for workflow
+    dialogs.value.delete.title = 'Delete Workflow'
+    dialogs.value.delete.message = `Are you sure you want to delete workflow "${workflowName}"? This will permanently delete the workflow file.`
+    dialogs.value.delete.workflowName = workflowName
+    dialogs.value.delete.isAttached = true
+  } else {
+    // Unattached tab - set up delete confirmation for unsaved tab
+    dialogs.value.delete.title = 'Close Unsaved Tab'
+    dialogs.value.delete.message = 'Are you sure you want to close this unsaved tab?'
+    dialogs.value.delete.workflowName = ''
+    dialogs.value.delete.isAttached = false
   }
+  
+  // Show the delete confirmation dialog
+  dialogs.value.delete.show = true
+  showWorkflowMenu.value = false
 }
 
 // Dialog handlers
@@ -225,6 +259,38 @@ const handleDialogCancel = () => {
   dialogs.value.name.show = false
   dialogs.value.name.hasError = false
   dialogs.value.name.input = ''
+}
+
+// Delete dialog handlers
+const handleDeleteConfirm = async () => {
+  const currentTabId = activeTabId.value
+  const { workflowName, isAttached } = dialogs.value.delete
+  
+  // Hide the dialog
+  dialogs.value.delete.show = false
+  
+  if (isAttached && workflowName) {
+    // Attached tab - delete workflow from server
+    try {
+      const success = await deleteWorkflow(workflowName)
+      if (success) {
+        // Close the tab after successful deletion
+        deleteTab(currentTabId)
+      } else {
+        // Show error - could use a snackbar here instead
+        console.error('Failed to delete workflow')
+      }
+    } catch (error) {
+      console.error('Error deleting workflow:', error)
+    }
+  } else {
+    // Unattached tab - just close
+    deleteTab(currentTabId)
+  }
+}
+
+const handleDeleteCancel = () => {
+  dialogs.value.delete.show = false
 }
 </script>
 
@@ -332,6 +398,26 @@ const handleDialogCancel = () => {
             :disabled="!dialogs.name.input.trim()"
           >
             Save
+          </v-btn>
+        </v-card-actions>
+      </v-card>
+    </v-dialog>
+
+    <!-- Delete Confirmation Dialog -->
+    <v-dialog v-model="dialogs.delete.show" max-width="400" persistent>
+      <v-card>
+        <v-card-title>{{ dialogs.delete.title }}</v-card-title>
+        <v-card-text>
+          <p>{{ dialogs.delete.message }}</p>
+        </v-card-text>
+        <v-card-actions>
+          <v-spacer></v-spacer>
+          <v-btn @click="handleDeleteCancel">Cancel</v-btn>
+          <v-btn
+            color="error"
+            @click="handleDeleteConfirm"
+          >
+            {{ dialogs.delete.isAttached ? 'Delete' : 'Close' }}
           </v-btn>
         </v-card-actions>
       </v-card>

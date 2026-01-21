@@ -31,9 +31,15 @@ const toggleTheme = () => {
   theme.global.name.value = isDark.value ? 'dark' : 'light'
 }
 
-const openNodesLibrary = () => {
+const openNodesLibrary = async () => {
   showNodesPanel.value = !showNodesPanel.value
   showWorkflowsPanel.value = false
+
+  // Always refresh nodes when opening the panel
+  if (showNodesPanel.value) {
+    await fetchNodes()
+  }
+
   console.log('Toggle nodes library panel')
 }
 
@@ -209,32 +215,42 @@ onMounted(() => {
     class="nodes-panel"
   >
     <v-toolbar flat>
-      <span class="text-h6 pl-4">Nodes</span>
+      <span class="text-h5 pl-4">Nodes</span>
       <v-spacer></v-spacer>
+      <v-btn
+        icon
+        variant="text"
+        @click="fetchNodes"
+        title="Refresh nodes"
+      >
+        <v-icon>mdi-refresh</v-icon>
+      </v-btn>
       <v-btn icon variant="text" @click="showNodesPanel = false">
         <v-icon>mdi-close</v-icon>
       </v-btn>
     </v-toolbar>
 
-    <div class="pa-3">
+    <div class="pa-2">
       <v-expansion-panels variant="accordion" multiple>
         <v-expansion-panel v-for="(nodes, category) in nodeCategories" :key="category as string">
-          <v-expansion-panel-title>
+          <v-expansion-panel-title class="text-subtitle-1">
             {{ category }}
           </v-expansion-panel-title>
-          <v-expansion-panel-text>
-            <div class="d-flex flex-column ga-2">
-              <v-chip
+          <v-expansion-panel-text class="pa-0">
+            <v-list density="compact" nav>
+              <v-list-item
                 v-for="node in nodes"
                 :key="node"
-                size="small"
-                variant="outlined"
-                class="justify-start"
+                @click="() => {}"
+                class="node-item"
                 draggable
               >
-                {{ node }}
-              </v-chip>
-            </div>
+                <template v-slot:prepend>
+                  <div class="node-dot"></div>
+                </template>
+                <v-list-item-title class="text-body-2">{{ node }}</v-list-item-title>
+              </v-list-item>
+            </v-list>
           </v-expansion-panel-text>
         </v-expansion-panel>
       </v-expansion-panels>
@@ -301,6 +317,26 @@ onMounted(() => {
 
 .workflow-item:hover {
   background-color: rgba(var(--v-theme-surface-variant), 0.12);
+}
+
+/* Node items styling */
+.node-item {
+  cursor: pointer;
+  min-height: 36px;
+}
+
+.node-item:hover {
+  background-color: rgba(var(--v-theme-surface-variant), 0.12);
+}
+
+/* Solid fill circle for nodes - larger size */
+.node-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background-color: rgb(var(--v-theme-primary));
+  margin-right: 12px;
+  flex-shrink: 0;
 }
 
 /* Responsive adjustments */

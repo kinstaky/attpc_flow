@@ -63,6 +63,7 @@ class WorkflowConnection(BaseModel):
 
 class Workflow(BaseModel):
     name: str
+    workspace: Optional[str] = None
     # description: Optional[str] = ""
     # nodes: List[WorkflowNode]
     # connections: List[WorkflowConnection] = []
@@ -212,6 +213,25 @@ async def get_workflow(workflow_id: str):
         raise
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get workflow: {str(e)}")
+
+@app.put("/workflows/{workflow_id}", response_model=Workflow)
+async def update_workflow(workflow_id: str, workflow: Workflow):
+    """Update an existing workflow."""
+    try:
+        # Check if workflow exists
+        file_path = WORKFLOWS_DIR / f"{workflow_id}.json"
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail=f"Workflow '{workflow_id}' not found")
+
+        # Save updated workflow
+        with open(file_path, 'w') as f:
+            json.dump(workflow.model_dump(), f, indent=2)
+
+        return workflow
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update workflow: {str(e)}")
 
 @app.delete("/workflows/{workflow_id}")
 async def delete_workflow(workflow_id: str):

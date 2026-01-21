@@ -216,18 +216,18 @@ const cancelRename = () => {
 const handleRenameAttached = async (oldName: string, newName: string) => {
   try {
     // Update workflow name and workspace
-    setActiveWorkflow({ 
-      name: newName, 
-      workspace: workspaceName.value 
+    setActiveWorkflow({
+      name: newName,
+      workspace: workspaceName.value
     })
-    
+
     // Create new workflow with new name
     await createWorkflow()
-    
+
     // Temporarily set activeTabName back to old name to delete it
     const currentName = activeTabName.value
     updateActiveTabName(oldName)
-    
+
     // Delete old workflow
     try {
       await deleteWorkflow()
@@ -241,14 +241,14 @@ const handleRenameAttached = async (oldName: string, newName: string) => {
 
     // Mark tab as saved
     saveTab(activeTabId.value)
-    
+
     console.log('Workflow renamed successfully:', oldName, '->', newName)
   } catch (error) {
     // Revert name change on error
     updateActiveTabName(oldName)
-    setActiveWorkflow({ 
-      name: oldName, 
-      workspace: workspaceName.value 
+    setActiveWorkflow({
+      name: oldName,
+      workspace: workspaceName.value
     })
     throw error
   }
@@ -362,9 +362,9 @@ const startEditWorkspace = () => {
 const finishEditWorkspace = () => {
   isEditingWorkspace.value = false
   // Update workspace by updating the active workflow
-  setActiveWorkflow({ 
-    name: activeTabName.value, 
-    workspace: workspaceName.value 
+  setActiveWorkflow({
+    name: activeTabName.value,
+    workspace: workspaceName.value
   })
   console.log('Workspace path updated to:', workspaceName.value)
 }

@@ -1,9 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, watch } from 'vue'
 import { activeTabName, activeTabId, isTabAttached, getOtherTabNames, addNewTab, updateActiveTabName, attachTab } from '../stores/tabs'
-
-// API base URL
-const API_BASE = ''
+import { createWorkflow, updateWorkflow, deleteWorkflow, getExistingWorkflows, workflowNameExists, saveWorkflow as saveWorkflowService } from '../services/workflow'
 
 // Local state
 const showWorkflowMenu = ref(false)
@@ -15,12 +13,17 @@ const renameError = ref('')
 const existingWorkflows = ref<string[]>([])
 const otherTabNames = ref<string[]>([])
 
-// Dialog state for save
-const showNameDialog = ref(false)
-const dialogTitle = ref('')
-const dialogMessage = ref('')
-const nameDialogInput = ref('')
-const hasDialogError = ref(false)
+// Dialog states organized in a structured object
+const dialogs = ref({
+  // Name dialog for save/rename workflow
+  name: {
+    show: false,
+    title: '',
+    message: '',
+    input: '',
+    hasError: false
+  }
+})
 
 // Update workflow name when store changes
 watch(activeTabName, (newName) => {
@@ -39,48 +42,40 @@ const duplicateWorkflow = () => {
 const saveWorkflow = async () => {
   const workflowName = currentWorkflow.value?.trim()
   const currentTabId = activeTabId.value
-  const isAttached = isTabAttached(currentTabId)
+  const isAttachedTab = isTabAttached(currentTabId)
   
-  if (isAttached) {
+  if (isAttachedTab) {
     // Attached tab: just update
     if (workflowName) {
       await updateWorkflow(workflowName)
     }
   } else {
-    console.log("workflowName before input", workflowName)
     // Unattached tab
     if (!workflowName) {
       // Show dialog to enter workflow name
-      dialogTitle.value = 'Save Workflow'
-      dialogMessage.value = 'Please enter a name for this workflow:'
-      nameDialogInput.value = ''
-      hasDialogError.value = false
-      showNameDialog.value = true
+      dialogs.value.name.title = 'Save Workflow'
+      dialogs.value.name.message = 'Please enter a name for this workflow:'
+      dialogs.value.name.input = ''
+      dialogs.value.name.hasError = false
+      dialogs.value.name.show = true
       return
     }
-    console.log("workflowName after input", workflowName)
+    
     // Check if name already exists
-    try {
-      const response = await fetch(`${API_BASE}/workflows`)
-      if (response.ok) {
-        const existingWorkflows = await response.json()
-        if (existingWorkflows.indexOf(workflowName) !== -1) {
-          // Name already exists, show dialog with current name
-          dialogTitle.value = 'Rename Workflow'
-          dialogMessage.value = `A workflow named "${workflowName}" already exists. Please choose a different name:`
-          nameDialogInput.value = workflowName
-          hasDialogError.value = true
-          showNameDialog.value = true
-          return
-        }
-      }
-      // Name doesn't exist, proceed with save
-      await createWorkflow(workflowName)
-      attachTab(currentTabId)
-    } catch (error) {
-      console.error('Failed to check existing workflows:', error)
-      // If we can't check, proceed with save
-      await createWorkflow(workflowName)
+    const nameExists = await workflowNameExists(workflowName)
+    if (nameExists) {
+      // Name already exists, show dialog with current name
+      dialogs.value.name.title = 'Rename Workflow'
+      dialogs.value.name.message = `A workflow named "${workflowName}" already exists. Please choose a different name:`
+      dialogs.value.name.input = workflowName
+      dialogs.value.name.hasError = true
+      dialogs.value.name.show = true
+      return
+    }
+    
+    // Name doesn't exist, proceed with save
+    const success = await createWorkflow(workflowName)
+    if (success) {
       attachTab(currentTabId)
     }
   }
@@ -99,14 +94,7 @@ const renameWorkflow = async () => {
   renameError.value = ''
 
   // Fetch existing workflows for validation
-  try {
-    const response = fetch(`${API_BASE}/workflows`)
-    if ((await response).ok) {
-      existingWorkflows.value = await (await response).json()
-    }
-  } catch (error) {
-    console.error('Failed to fetch workflows:', error)
-  }
+  existingWorkflows.value = await getExistingWorkflows()
 
   // Get other tab names directly from store for validation
   otherTabNames.value = getOtherTabNames()
@@ -147,7 +135,11 @@ const validateAndFinishRename = async () => {
     renameError.value = ''
   } else {
     // Check against other tab names
-    if (otherTabNames.value.indexOf(newName) !== -1) {
+    // Check against existing workflow files
+    if (existingWorkflows.value.indexOf(newName) !== -1) {
+      renameError.value = 'A workflow with this name already exists'
+      return
+    } else if (otherTabNames.value.indexOf(newName) !== -1) {
       renameError.value = 'Another tab already has this name'
       return
     }
@@ -168,25 +160,16 @@ const cancelRename = () => {
 const handleRenameAttached = async (oldName: string, newName: string) => {
   try {
     // Create new workflow with new name
-    const workflowData = { name: newName }
-
-    const createResponse = await fetch(`${API_BASE}/workflows`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(workflowData)
-    })
-
-    if (!createResponse.ok) {
-      throw new Error(`Failed to create workflow: ${createResponse.statusText}`)
+    const createSuccess = await createWorkflow(newName)
+    if (!createSuccess) {
+      renameError.value = 'Failed to rename workflow. Please try again.'
+      return
     }
 
     // Delete old workflow
-    const deleteResponse = await fetch(`${API_BASE}/workflows/${encodeURIComponent(oldName)}`, {
-      method: 'DELETE'
-    })
-
-    if (!deleteResponse.ok) {
-      throw new Error(`Failed to delete old workflow: ${deleteResponse.statusText}`)
+    const deleteSuccess = await deleteWorkflow(oldName)
+    if (!deleteSuccess) {
+      console.warn('Failed to delete old workflow, but new workflow was created')
     }
 
     // Update tab name
@@ -198,57 +181,7 @@ const handleRenameAttached = async (oldName: string, newName: string) => {
   }
 }
 
-// Create new workflow via POST API
-const createWorkflow = async (name: string) => {
-  try {
-    const workflowData = {
-      name: name
-    }
-
-    const response = await fetch(`${API_BASE}/workflows`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(workflowData)
-    })
-
-    if (!response.ok) {
-      throw new Error(`Failed to create workflow: ${response.statusText}`)
-    }
-
-    console.log('Workflow created successfully:', name)
-  } catch (error) {
-    console.error('Error creating workflow:', error)
-  }
-}
-
-// Update existing workflow via PUT API
-const updateWorkflow = async (name: string) => {
-  try {
-    const workflowData = {
-      name: name
-    }
-
-    const response = await fetch(`${API_BASE}/workflows/${encodeURIComponent(name)}`, {
-      method: 'PUT',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(workflowData)
-    })
-
-    if (!response.ok) {
-      throw new Error(`Failed to update workflow: ${response.statusText}`)
-    }
-
-    console.log('Workflow updated successfully:', name)
-  } catch (error) {
-    console.error('Error updating workflow:', error)
-  }
-}
-
-const deleteWorkflow = () => {
+const handleDeleteWorkflow = () => {
   if (confirm(`Are you sure you want to delete workflow "${currentWorkflow.value}"?`)) {
     console.log('Delete workflow:', currentWorkflow.value)
     showWorkflowMenu.value = false
@@ -257,46 +190,41 @@ const deleteWorkflow = () => {
 
 // Dialog handlers
 const handleDialogConfirm = async () => {
-  const name = nameDialogInput.value.trim()
+  const name = dialogs.value.name.input.trim()
   if (!name) {
     return // Empty name not allowed
   }
-  
+
   // Check if name already exists (for rename case)
-  try {
-    const response = await fetch(`${API_BASE}/workflows`)
-    if (response.ok) {
-      const existing = await response.json()
-      if (existing.indexOf(name) !== -1) {
-          // Show error message and keep dialog open
-          dialogTitle.value = 'Rename Workflow'
-          dialogMessage.value = `A workflow named "${name}" already exists. Please choose a different name:`
-          hasDialogError.value = true
-          return
-        }
-    }
-  } catch (error) {
-    console.error('Failed to check existing workflows:', error)
+  const nameExists = await workflowNameExists(name)
+  if (nameExists) {
+    // Show error message and keep dialog open
+    dialogs.value.name.title = 'Rename Workflow'
+    dialogs.value.name.message = `A workflow named "${name}" already exists. Please choose a different name:`
+    dialogs.value.name.hasError = true
+    return
   }
-  
-  showNameDialog.value = false
-  hasDialogError.value = false
-  
+
+  dialogs.value.name.show = false
+  dialogs.value.name.hasError = false
+
   // Update the workflow name
   updateActiveTabName(name)
   currentWorkflow.value = name
-  
+
   // Create the workflow
-  await createWorkflow(name)
-  attachTab(activeTabId.value)
-  
+  const success = await createWorkflow(name)
+  if (success) {
+    attachTab(activeTabId.value)
+  }
+
   showWorkflowMenu.value = false
 }
 
 const handleDialogCancel = () => {
-  showNameDialog.value = false
-  hasDialogError.value = false
-  nameDialogInput.value = ''
+  dialogs.value.name.show = false
+  dialogs.value.name.hasError = false
+  dialogs.value.name.input = ''
 }
 </script>
 
@@ -356,7 +284,7 @@ const handleDialogCancel = () => {
             <v-list-item-title>Rename</v-list-item-title>
           </v-list-item>
           <v-divider></v-divider>
-          <v-list-item @click="deleteWorkflow" class="text-error">
+          <v-list-item @click="handleDeleteWorkflow" class="text-error">
             <template v-slot:prepend>
               <v-icon color="error">mdi-delete</v-icon>
             </template>
@@ -380,13 +308,13 @@ const handleDialogCancel = () => {
     </div>
 
     <!-- Workflow Name Dialog -->
-    <v-dialog v-model="showNameDialog" max-width="400" persistent>
+    <v-dialog v-model="dialogs.name.show" max-width="400" persistent>
       <v-card>
-        <v-card-title>{{ dialogTitle }}</v-card-title>
+        <v-card-title>{{ dialogs.name.title }}</v-card-title>
         <v-card-text>
-          <p class="mb-4" :class="hasDialogError ? 'text-error' : ''">{{ dialogMessage }}</p>
+          <p class="mb-4" :class="dialogs.name.hasError ? 'text-error' : ''">{{ dialogs.name.message }}</p>
           <v-text-field
-            v-model="nameDialogInput"
+            v-model="dialogs.name.input"
             label="Workflow Name"
             variant="outlined"
             density="compact"
@@ -401,7 +329,7 @@ const handleDialogCancel = () => {
           <v-btn
             color="primary"
             @click="handleDialogConfirm"
-            :disabled="!nameDialogInput.trim()"
+            :disabled="!dialogs.name.input.trim()"
           >
             Save
           </v-btn>

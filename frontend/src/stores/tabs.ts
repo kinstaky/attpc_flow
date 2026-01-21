@@ -67,19 +67,24 @@ export const deleteTab = (tabId: string) => {
     const index = tabState.tabs.findIndex(t => t.id === tabId)
     if (index !== -1) {
       tabState.tabs.splice(index, 1)
-      // Select adjacent tab
-      if (index >= tabState.tabs.length) {
-        const lastTab = tabState.tabs[tabState.tabs.length - 1]
-        if (lastTab) {
-          setActiveTab(lastTab.id)
+      // Select previous tab (to the left), or first tab if deleting the first one
+      if (index > 0) {
+        const prevTab = tabState.tabs[index - 1]
+        if (prevTab) {
+          setActiveTab(prevTab.id)
         }
       } else {
-        const nextTab = tabState.tabs[index]
-        if (nextTab) {
-          setActiveTab(nextTab.id)
+        // If we're deleting the first tab, select the new first tab
+        const firstTab = tabState.tabs[0]
+        if (firstTab) {
+          setActiveTab(firstTab.id)
         }
       }
     }
+  } else if (tabState.tabs.length === 1) {
+    // If this is the only tab, remove it and create a new empty one
+    tabState.tabs.splice(0, 1)
+    addNewTab()
   }
 }
 
@@ -111,36 +116,4 @@ export const attachTab = (tabId: string) => {
 export const isTabAttached = (tabId: string): boolean => {
   const tab = tabState.tabs.find(t => t.id === tabId)
   return tab?.state !== TabState.UNATTACHED || false
-}
-
-// Drag and drop handlers
-const draggedTab = reactive<{ value: string | null }>({ value: null })
-
-export const handleDragStart = (event: DragEvent, tabId: string) => {
-  draggedTab.value = tabId
-  event.dataTransfer?.setData('text/plain', tabId)
-}
-
-export const handleDragOver = (event: DragEvent) => {
-  event.preventDefault()
-}
-
-export const handleDrop = (event: DragEvent, targetTabId: string) => {
-  event.preventDefault()
-  if (draggedTab.value && draggedTab.value !== targetTabId) {
-    const draggedIndex = tabState.tabs.findIndex(t => t.id === draggedTab.value)
-    const targetIndex = tabState.tabs.findIndex(t => t.id === targetTabId)
-
-    if (draggedIndex !== -1 && targetIndex !== -1) {
-      const [draggedItem] = tabState.tabs.splice(draggedIndex, 1)
-      if (draggedItem) {
-        tabState.tabs.splice(targetIndex, 0, draggedItem)
-      }
-    }
-  }
-  draggedTab.value = null
-}
-
-export const handleDragEnd = () => {
-  draggedTab.value = null
 }

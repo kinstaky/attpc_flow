@@ -1,18 +1,25 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, inject } from 'vue'
 import {
-  activeTabId,
   activeTabName,
+  activeTabId,
+  activeWorkflow,
   tabs,
-  setActiveTab,
-  isTabAttached,
+  isTabSaved,
   getTabName,
-  addNewTab,
-  deleteTab as deleteTabFromStore,
+  setActiveTab,
   updateActiveTabName,
-  attachTab
+  setActiveWorkflow,
+  saveTab,
+  addNewTab,
+  deleteTab as deleteTabFromStore
 } from '../stores/tabs'
 import { createWorkflow, workflowNameExists } from '../services/workflow'
+
+// Inject error handler from parent
+const showError = inject<(message: string) => void>('showError', (msg: string) => {
+  console.error('Error (no handler):', msg)
+})
 
 // Drag and drop state
 const draggedTab = ref<string | null>(null)
@@ -50,6 +57,17 @@ const showNameDialog = computed({
   }
 })
 
+// Writable computed for v-tabs v-model
+const activeTabModel = computed({
+  get: () => activeTabId.value,
+  set: (value: string) => {
+    // Ensure the tab exists before setting it as active
+    if (tabs.value.some(tab => tab.id === value)) {
+      setActiveTab(value)
+    }
+  }
+})
+
 // Local methods
 const handleTabSwitch = (newTabId: string, event?: MouseEvent) => {
   setActiveTab(newTabId)
@@ -71,7 +89,7 @@ const deleteTab = (tabId: string, event: MouseEvent) => {
   dialogs.value.close.tabToClose = tabId
 
   // Check if tab is saved
-  if (!isTabAttached(tabId)) {
+  if (!isTabSaved(tabId)) {
     // Unsaved tab - ask to save
     dialogs.value.close.message = 'Do you want to save this tab before closing?'
     dialogs.value.active = 'close'
@@ -98,11 +116,16 @@ const handleCloseDialogSave = async () => {
     dialogs.value.name.callback = async () => {
       const name = dialogs.value.name.input.trim()
       if (name) {
-        // Save with the new name
-        updateActiveTabName(name)
-        const success = await createWorkflow(name)
-        if (success) {
-          attachTab(tabId)
+        try {
+          // Save with the new name
+          updateActiveTabName(name)
+          // Set activeWorkflow first so createWorkflow uses the correct data
+          setActiveWorkflow({ name: name, workspace: activeWorkflow.value?.workspace || null })
+          await createWorkflow()
+          saveTab(tabId)
+        } catch (error) {
+          const errorMessage = error instanceof Error ? error.message : 'Failed to save workflow'
+          showError(errorMessage)
         }
       }
       // Close the tab
@@ -116,21 +139,28 @@ const handleCloseDialogSave = async () => {
   // Clear the active dialog
   dialogs.value.active = null
 
-  // Named workflow - save it
-  const nameExists = await workflowNameExists(workflowName)
-  if (nameExists) {
-    // Name already exists, show error but still close
-    console.error('Workflow name already exists')
-  }
+  try {
+    // Named workflow - save it
+    const nameExists = await workflowNameExists(workflowName)
+    if (nameExists) {
+      // Name already exists, show error but still close
+      showError('Workflow name already exists')
+    }
 
-  // Save the workflow
-  const success = await createWorkflow(workflowName)
-  if (success) {
-    attachTab(tabId)
-  }
+    // Set activeWorkflow first so createWorkflow uses the correct data
+    setActiveWorkflow({ name: workflowName, workspace: activeWorkflow.value?.workspace || null })
+    // Save the workflow
+    await createWorkflow()
+    saveTab(tabId)
 
-  // Close the tab after saving
-  performCloseTab(tabId)
+    // Close the tab after saving
+    performCloseTab(tabId)
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Failed to save workflow'
+    showError(errorMessage)
+    // Still close the tab even if save failed
+    performCloseTab(tabId)
+  }
 }
 
 const handleCloseDialogNoSave = () => {
@@ -210,7 +240,7 @@ const handleDragEnd = () => {
       <!-- Workflow Tabs -->
       <div class="d-flex align-center">
         <v-tabs
-          v-model="activeTabId"
+          v-model="activeTabModel"
           density="compact"
           hide-slider
           class="workflow-tabs"
@@ -230,7 +260,7 @@ const handleDragEnd = () => {
             <div class="d-flex align-center ga-2">
               <span>{{ getTabName(tab.id) }}</span>
               <span
-                v-if="!isTabAttached(tab.id)"
+                v-if="!isTabSaved(tab.id)"
                 class="unsaved-indicator"
                 title="Not saved to file"
               >•</span>

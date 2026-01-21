@@ -1,7 +1,23 @@
 <script setup lang="ts">
+import { ref, provide } from 'vue'
 import TopAppBar from './TopAppBar.vue'
 import SideNav from './SideNav.vue'
 import FloatingButtons from './FloatingButtons.vue'
+
+// Snackbar state
+const snackbar = ref(false)
+const snackbarText = ref('')
+const snackbarColor = ref('error')
+
+// Function to show error messages
+const showError = (message: string) => {
+  snackbarText.value = message
+  snackbarColor.value = 'error'
+  snackbar.value = true
+}
+
+// Provide error handler to child components
+provide('showError', showError)
 </script>
 
 <template>
@@ -24,6 +40,21 @@ import FloatingButtons from './FloatingButtons.vue'
       <!-- Floating Buttons Component -->
       <FloatingButtons />
     </v-main>
+
+    <!-- Error Snackbar -->
+    <v-snackbar
+      v-model="snackbar"
+      :color="snackbarColor"
+      :timeout="5000"
+      location="bottom"
+    >
+      {{ snackbarText }}
+      <template v-slot:actions>
+        <v-btn variant="text" @click="snackbar = false">
+          Close
+        </v-btn>
+      </template>
+    </v-snackbar>
   </v-app>
 </template>
 

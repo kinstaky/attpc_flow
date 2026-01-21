@@ -1,23 +1,40 @@
 <script setup lang="ts">
-import { ref, computed, nextTick, watch } from 'vue'
+import { ref, computed, nextTick, watch, inject } from 'vue'
 import {
   activeTabName,
   activeTabId,
+  activeWorkspace,
   isTabAttached,
   getOtherTabNames,
   addNewTab,
   updateActiveTabName,
-  attachTab,
-  deleteTab
+  updateActiveWorkflow,
+  setActiveWorkflow,
+  saveTab,
+  deleteTab,
+  activeWorkflow
 } from '../stores/tabs'
-import { createWorkflow, updateWorkflow, deleteWorkflow, getExistingWorkflows, workflowNameExists, saveWorkflow as saveWorkflowService } from '../services/workflow'
+import {
+  createWorkflow,
+  updateWorkflow as updateWorkflowService,
+  deleteWorkflow,
+  listWorkflows,
+  workflowNameExists,
+} from '../services/workflow'
+
+// Inject error handler from parent
+const showError = inject<(message: string) => void>('showError', (msg: string) => {
+  console.error('Error (no handler):', msg)
+})
 
 // Local state
 const showWorkflowMenu = ref(false)
 const isRenaming = ref(false)
 const renameInput = ref<HTMLInputElement>()
 const currentWorkflow = ref(activeTabName.value || '')
-const workspaceName = ref('Workspace 1')
+const workspaceName = ref(activeWorkspace.value)
+const isEditingWorkspace = ref(false)
+const workspaceInput = ref<HTMLInputElement>()
 const renameError = ref('')
 const existingWorkflows = ref<string[]>([])
 const otherTabNames = ref<string[]>([])
@@ -52,7 +69,10 @@ const workflowDisplayName = computed(() => activeTabName.value || 'untitled')
 
 // Workflow functions
 const duplicateWorkflow = () => {
+  const currentWorkflow = JSON.parse(JSON.stringify(activeWorkflow.value))
   addNewTab()
+  currentWorkflow.name = null
+  updateActiveWorkflow(currentWorkflow)
   showWorkflowMenu.value = false
 }
 
@@ -61,43 +81,49 @@ const saveWorkflow = async () => {
   const currentTabId = activeTabId.value
   const isAttachedTab = isTabAttached(currentTabId)
 
-  if (isAttachedTab) {
-    // Attached tab: just update
-    if (workflowName) {
-      await updateWorkflow(workflowName)
-    }
-  } else {
-    // Unattached tab
-    if (!workflowName) {
-      // Show dialog to enter workflow name
-      dialogs.value.name.title = 'Save Workflow'
-      dialogs.value.name.message = 'Please enter a name for this workflow:'
-      dialogs.value.name.input = ''
-      dialogs.value.name.hasError = false
-      dialogs.value.name.show = true
-      return
+  try {
+    if (isAttachedTab) {
+      // Attached tab: just update
+      if (workflowName) {
+        await updateWorkflowService()
+      }
+    } else {
+      // Unattached tab
+      if (!workflowName) {
+        // Show dialog to enter workflow name
+        dialogs.value.name.title = 'Save Workflow'
+        dialogs.value.name.message = 'Please enter a name for this workflow:'
+        dialogs.value.name.input = ''
+        dialogs.value.name.hasError = false
+        dialogs.value.name.show = true
+        return
+      }
+
+      // Check if name already exists
+      const nameExists = await workflowNameExists(workflowName)
+      if (nameExists) {
+        // Name already exists, show dialog with current name
+        dialogs.value.name.title = 'Rename Workflow'
+        dialogs.value.name.message = `A workflow named "${workflowName}" already exists. Please choose a different name:`
+        dialogs.value.name.input = workflowName
+        dialogs.value.name.hasError = true
+        dialogs.value.name.show = true
+        return
+      }
+
+      // Name doesn't exist, proceed with save
+      // Set activeWorkflow first so createWorkflow uses the correct data
+      setActiveWorkflow({ name: workflowName, workspace: workspaceName.value })
+      await createWorkflow()
+      saveTab(currentTabId)
     }
 
-    // Check if name already exists
-    const nameExists = await workflowNameExists(workflowName)
-    if (nameExists) {
-      // Name already exists, show dialog with current name
-      dialogs.value.name.title = 'Rename Workflow'
-      dialogs.value.name.message = `A workflow named "${workflowName}" already exists. Please choose a different name:`
-      dialogs.value.name.input = workflowName
-      dialogs.value.name.hasError = true
-      dialogs.value.name.show = true
-      return
-    }
-
-    // Name doesn't exist, proceed with save
-    const success = await createWorkflow(workflowName)
-    if (success) {
-      attachTab(currentTabId)
-    }
+    showWorkflowMenu.value = false
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Failed to save workflow'
+    showError(errorMessage)
+    showWorkflowMenu.value = false
   }
-
-  showWorkflowMenu.value = false
 }
 
 const saveAsWorkflow = () => {
@@ -110,8 +136,15 @@ const renameWorkflow = async () => {
   showWorkflowMenu.value = false
   renameError.value = ''
 
-  // Fetch existing workflows for validation
-  existingWorkflows.value = await getExistingWorkflows()
+  try {
+    // Fetch existing workflows for validation
+    existingWorkflows.value = await listWorkflows()
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Failed to fetch workflows'
+    showError(errorMessage)
+    isRenaming.value = false
+    return
+  }
 
   // Get other tab names directly from store for validation
   otherTabNames.value = getOtherTabNames()
@@ -140,30 +173,36 @@ const validateAndFinishRename = async () => {
 
   const isAttached = isTabAttached(activeTabId.value)
 
-  if (isAttached) {
-    // Check against existing workflow files
-    if (existingWorkflows.value.indexOf(newName) !== -1) {
-      renameError.value = 'A workflow with this name already exists'
-      return
+  try {
+    if (isAttached) {
+      // Check against existing workflow files
+      if (existingWorkflows.value.indexOf(newName) !== -1) {
+        renameError.value = 'A workflow with this name already exists'
+        return
+      }
+      // For attached tabs, create new and delete old via API
+      await handleRenameAttached(activeTabName.value || '', newName)
+      isRenaming.value = false
+      renameError.value = ''
+    } else {
+      // Check against other tab names
+      // Check against existing workflow files
+      if (existingWorkflows.value.indexOf(newName) !== -1) {
+        renameError.value = 'A workflow with this name already exists'
+        return
+      } else if (otherTabNames.value.indexOf(newName) !== -1) {
+        renameError.value = 'Another tab already has this name'
+        return
+      }
+      // Valid - update name directly
+      updateActiveTabName(newName)
+      isRenaming.value = false
+      renameError.value = ''
     }
-    // For attached tabs, create new and delete old via API
-    await handleRenameAttached(activeTabName.value || '', newName)
-    isRenaming.value = false
-    renameError.value = ''
-  } else {
-    // Check against other tab names
-    // Check against existing workflow files
-    if (existingWorkflows.value.indexOf(newName) !== -1) {
-      renameError.value = 'A workflow with this name already exists'
-      return
-    } else if (otherTabNames.value.indexOf(newName) !== -1) {
-      renameError.value = 'Another tab already has this name'
-      return
-    }
-    // Valid - update name directly
-    updateActiveTabName(newName)
-    isRenaming.value = false
-    renameError.value = ''
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Failed to rename workflow'
+    showError(errorMessage)
+    renameError.value = errorMessage
   }
 }
 
@@ -176,25 +215,42 @@ const cancelRename = () => {
 // Handle rename for attached tabs - create new workflow and delete old one
 const handleRenameAttached = async (oldName: string, newName: string) => {
   try {
+    // Update workflow name and workspace
+    setActiveWorkflow({ 
+      name: newName, 
+      workspace: workspaceName.value 
+    })
+    
     // Create new workflow with new name
-    const createSuccess = await createWorkflow(newName)
-    if (!createSuccess) {
-      renameError.value = 'Failed to rename workflow. Please try again.'
-      return
-    }
-
+    await createWorkflow()
+    
+    // Temporarily set activeTabName back to old name to delete it
+    const currentName = activeTabName.value
+    updateActiveTabName(oldName)
+    
     // Delete old workflow
-    const deleteSuccess = await deleteWorkflow(oldName)
-    if (!deleteSuccess) {
+    try {
+      await deleteWorkflow()
+    } catch (deleteError) {
       console.warn('Failed to delete old workflow, but new workflow was created')
+      showError('Failed to delete old workflow, but new workflow was created')
+    } finally {
+      // Always restore the new name
+      updateActiveTabName(newName)
     }
 
-    // Update tab name
-    updateActiveTabName(newName)
-
+    // Mark tab as saved
+    saveTab(activeTabId.value)
+    
     console.log('Workflow renamed successfully:', oldName, '->', newName)
   } catch (error) {
-    console.error('Error renaming workflow:', error)
+    // Revert name change on error
+    updateActiveTabName(oldName)
+    setActiveWorkflow({ 
+      name: oldName, 
+      workspace: workspaceName.value 
+    })
+    throw error
   }
 }
 
@@ -229,30 +285,36 @@ const handleDialogConfirm = async () => {
     return // Empty name not allowed
   }
 
-  // Check if name already exists (for rename case)
-  const nameExists = await workflowNameExists(name)
-  if (nameExists) {
-    // Show error message and keep dialog open
-    dialogs.value.name.title = 'Rename Workflow'
-    dialogs.value.name.message = `A workflow named "${name}" already exists. Please choose a different name:`
+  try {
+    // Check if name already exists (for rename case)
+    const nameExists = await workflowNameExists(name)
+    if (nameExists) {
+      // Show error message and keep dialog open
+      dialogs.value.name.title = 'Rename Workflow'
+      dialogs.value.name.message = `A workflow named "${name}" already exists. Please choose a different name:`
+      dialogs.value.name.hasError = true
+      return
+    }
+
+    dialogs.value.name.show = false
+    dialogs.value.name.hasError = false
+
+    // Update the workflow name
+    updateActiveTabName(name)
+    currentWorkflow.value = name
+
+    // Set activeWorkflow first so createWorkflow uses the correct data
+    setActiveWorkflow({ name: name, workspace: workspaceName.value })
+    // Create the workflow
+    await createWorkflow()
+    saveTab(activeTabId.value)
+
+    showWorkflowMenu.value = false
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Failed to save workflow'
+    showError(errorMessage)
     dialogs.value.name.hasError = true
-    return
   }
-
-  dialogs.value.name.show = false
-  dialogs.value.name.hasError = false
-
-  // Update the workflow name
-  updateActiveTabName(name)
-  currentWorkflow.value = name
-
-  // Create the workflow
-  const success = await createWorkflow(name)
-  if (success) {
-    attachTab(activeTabId.value)
-  }
-
-  showWorkflowMenu.value = false
 }
 
 const handleDialogCancel = () => {
@@ -272,16 +334,12 @@ const handleDeleteConfirm = async () => {
   if (isAttached && workflowName) {
     // Attached tab - delete workflow from server
     try {
-      const success = await deleteWorkflow(workflowName)
-      if (success) {
-        // Close the tab after successful deletion
-        deleteTab(currentTabId)
-      } else {
-        // Show error - could use a snackbar here instead
-        console.error('Failed to delete workflow')
-      }
+      await deleteWorkflow()
+      // Close the tab after successful deletion
+      deleteTab(currentTabId)
     } catch (error) {
-      console.error('Error deleting workflow:', error)
+      const errorMessage = error instanceof Error ? error.message : 'Failed to delete workflow'
+      showError(errorMessage)
     }
   } else {
     // Unattached tab - just close
@@ -292,6 +350,34 @@ const handleDeleteConfirm = async () => {
 const handleDeleteCancel = () => {
   dialogs.value.delete.show = false
 }
+
+const startEditWorkspace = () => {
+  isEditingWorkspace.value = true
+  nextTick(() => {
+    workspaceInput.value?.focus()
+    workspaceInput.value?.select()
+  })
+}
+
+const finishEditWorkspace = () => {
+  isEditingWorkspace.value = false
+  // Update workspace by updating the active workflow
+  setActiveWorkflow({ 
+    name: activeTabName.value, 
+    workspace: workspaceName.value 
+  })
+  console.log('Workspace path updated to:', workspaceName.value)
+}
+
+const cancelEditWorkspace = () => {
+  isEditingWorkspace.value = false
+}
+
+// Watch for workspace changes from store
+watch(activeWorkspace, (newWorkspace) => {
+  workspaceName.value = newWorkspace
+})
+
 </script>
 
 <template>
@@ -359,10 +445,30 @@ const handleDeleteCancel = () => {
         </v-list>
       </v-menu>
 
-      <!-- Workspace button -->
-      <v-btn variant="outlined" disabled>
-        {{ workspaceName }}
-      </v-btn>
+      <!-- Workspace button or input -->
+      <div v-if="!isEditingWorkspace" class="d-flex align-center">
+        <v-btn
+          variant="outlined"
+          @click="startEditWorkspace"
+          class="workspace-btn"
+          :class="{ 'workspace-null': !workspaceName }"
+        >
+          <v-icon start size="small">mdi-folder-outline</v-icon>
+          <span class="workspace-label">{{ workspaceName || 'No workspace' }}</span>
+        </v-btn>
+      </div>
+      <v-text-field
+        v-else
+        ref="workspaceInput"
+        v-model="workspaceName"
+        variant="outlined"
+        density="compact"
+        placeholder="Enter workspace path..."
+        style="width: 300px;"
+        @keyup.enter="finishEditWorkspace"
+        @keyup.escape="cancelEditWorkspace"
+        @blur="finishEditWorkspace"
+      ></v-text-field>
     </div>
 
     <!-- Right side button -->
@@ -455,6 +561,19 @@ const handleDeleteCancel = () => {
 
 .floating-right {
   align-items: flex-end;
+}
+
+/* Workspace button styles */
+.workspace-btn {
+  text-transform: none !important;
+}
+
+.workspace-btn .workspace-label {
+  text-transform: none;
+}
+
+.workspace-btn.workspace-null .workspace-label {
+  color: rgba(var(--v-theme-on-surface), 0.5);
 }
 
 /* Responsive adjustments */

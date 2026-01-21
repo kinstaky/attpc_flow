@@ -1,8 +1,22 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, inject } from 'vue'
 import { useTheme } from 'vuetify'
-import { addNewTab, setActiveTab, attachTab, updateActiveTabName, activeTabId, activeTabName, isTabAttached } from '../stores/tabs'
-import { getWorkflow } from '../services/workflow'
+import {
+  addNewTab,
+  saveTab,
+  updateActiveTabName,
+  activeTabId,
+  activeTabName,
+  isTabAttached,
+  activeWorkflow,
+  updateActiveWorkflow
+} from '../stores/tabs'
+import { getWorkflow, listWorkflows } from '../services/workflow'
+
+// Inject error handler from parent
+const showError = inject<(message: string) => void>('showError', (msg: string) => {
+  console.error('Error (no handler):', msg)
+})
 
 const theme = useTheme()
 const isDark = ref(true)
@@ -54,24 +68,21 @@ const fetchNodes = async () => {
 
 const fetchWorkflows = async () => {
   try {
-    const response = await fetch('/workflows')
-    if (response.ok) {
-      workflows.value = await response.json()
-    }
+    workflows.value = await listWorkflows()
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Failed to fetch workflows'
+    showError(errorMessage)
     console.error('Failed to fetch workflows:', error)
   }
 }
 
 const openWorkflow = async (workflowName: string) => {
   try {
-    // Get workflow data from server
-    const workflowData = await getWorkflow(workflowName)
-
     // Check if active tab is empty (null name, unattached)
     const currentTabId = activeTabId.value
     const currentTabName = activeTabName.value
     const isAttachedTab = isTabAttached(currentTabId)
+    const currentWorkflow = activeWorkflow.value ?? null
 
     let targetTabId: string
 
@@ -85,20 +96,23 @@ const openWorkflow = async (workflowName: string) => {
     }
 
     // Set the tab name to match the workflow
-    updateActiveTabName(workflowName)
+    // updateActiveTabName(workflowName)
+
+    // Get workflow data from server
+    const workflowData = await getWorkflow(workflowName)
+    updateActiveWorkflow(workflowData)
 
     // Mark the tab as attached (saved)
-    attachTab(targetTabId)
+    saveTab(targetTabId)
 
-    // TODO: Import workflow data into the tab's content
-    // This depends on how you store the actual workflow graph/data
-    // You might need to emit an event or call a method to load the data
     console.log('Opened workflow:', workflowName, 'in tab:', targetTabId)
-    console.log('Workflow data:', workflowData)
+    // console.log('Workflow data:', workflowData)
 
     // Close the workflows submenu
     showWorkflowsPanel.value = false
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Failed to open workflow'
+    showError(errorMessage)
     console.error('Failed to open workflow:', error)
   }
 }

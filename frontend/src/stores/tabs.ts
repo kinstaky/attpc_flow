@@ -1,4 +1,5 @@
 import { reactive, computed } from 'vue'
+import { type Workflow } from './workflow'
 
 // Tab state enum (internal use only)
 enum TabState {
@@ -10,8 +11,8 @@ enum TabState {
 // Tab interface
 interface Tab {
   id: string
-  name: string | null
   state: TabState
+  workflow: Workflow
 }
 
 // Tab store state
@@ -22,7 +23,7 @@ interface TabsStoreState {
 
 const tabState = reactive<TabsStoreState>({
   tabs: [
-    { id: 'tab1', name: null, state: TabState.UNATTACHED }
+    { id: 'tab1', state: TabState.UNATTACHED, workflow: {name: null, workspace: null } }
   ],
   activeTabId: 'tab1'
 })
@@ -32,31 +33,54 @@ let tabCounter = 1
 // Computed properties
 export const activeTabId = computed(() => tabState.activeTabId)
 export const tabs = computed(() => tabState.tabs)
-export const activeTab = computed(() => tabState.tabs.find(t => t.id === tabState.activeTabId))
-export const activeTabName = computed(() => activeTab.value?.name || null)
+export const activeTab = computed(() => tabState.tabs.find(t => t.id === tabState.activeTabId) ?? null)
+export const activeTabName = computed(() => activeTab.value?.workflow.name || null)
+export const activeWorkflow = computed(() => activeTab.value?.workflow || null)
+export const activeWorkspace = computed(() => activeTab.value?.workflow.workspace || null)
 
 // Tab management functions
 export const setActiveTab = (tabId: string) => {
   tabState.activeTabId = tabId
 }
 
-export const updateActiveTabName = (name: string | null) => {
+export const updateActiveTabName = (name: string) => {
+  if (activeTab.value) {
+    activeTab.value.workflow.name = name
+  }
+}
+
+function updateState(tab: Tab) {
+  if (tab.state === TabState.ATTACHED_SAVED) {
+    tab.state = TabState.ATTACHED_UNSAVED
+  }
+}
+
+export const updateActiveWorkflow = (workflow: Workflow) => {
   const tab = activeTab.value
   if (tab) {
-    tab.name = name
-    // If tab is attached and name changes, mark as unsaved
-    if (tab.state === TabState.ATTACHED_SAVED && name !== null) {
-      tab.state = TabState.ATTACHED_UNSAVED
-    }
+    tab.workflow = workflow
+    updateState(tab)
+  }
+}
+
+export const setActiveWorkflow = (workflow: Workflow) => {
+  const tab = activeTab.value
+  if (tab) {
+    tab.workflow = workflow
+    updateState(tab)
   }
 }
 
 export const addNewTab = () => {
   tabCounter++
+  const newWorkflow: Workflow = {
+    name: null,
+    workspace: activeWorkspace.value,
+  }
   const newTab: Tab = {
     id: `tab${tabCounter}`,
-    name: null,
-    state: TabState.UNATTACHED
+    state: TabState.UNATTACHED,
+    workflow: newWorkflow,
   }
   tabState.tabs.push(newTab)
   setActiveTab(newTab.id)
@@ -83,30 +107,30 @@ export const deleteTab = (tabId: string) => {
     }
   } else if (tabState.tabs.length === 1) {
     // If this is the only tab, remove it and create a new empty one
-    tabState.tabs.splice(0, 1)
     addNewTab()
+    tabState.tabs.splice(0, 1)
   }
 }
 
 export const getTabName = (tabId: string): string => {
   const tab = tabState.tabs.find(t => t.id === tabId)
-  return tab?.name || 'untitled'
+  return tab?.workflow.name || 'untitled'
 }
 
 export const isTabNameUsed = (name: string, excludeTabId?: string): boolean => {
   return tabState.tabs.some(tab =>
-    tab.name === name && tab.id !== excludeTabId
+    tab.workflow.name === name && tab.id !== excludeTabId
   )
 }
 
 export const getOtherTabNames = (): string[] => {
   return tabState.tabs
-    .filter(tab => tab.id !== tabState.activeTabId && tab.name !== null)
-    .map(tab => tab.name!)
+    .filter(tab => tab.id !== tabState.activeTabId && tab.workflow.name !== null)
+    .map(tab => tab.workflow.name!)
 }
 
 // Attachment functions
-export const attachTab = (tabId: string) => {
+export const saveTab = (tabId: string) => {
   const tab = tabState.tabs.find(t => t.id === tabId)
   if (tab) {
     tab.state = TabState.ATTACHED_SAVED
@@ -116,4 +140,14 @@ export const attachTab = (tabId: string) => {
 export const isTabAttached = (tabId: string): boolean => {
   const tab = tabState.tabs.find(t => t.id === tabId)
   return tab?.state !== TabState.UNATTACHED || false
+}
+
+export const isTabSaved = (tabId: string): boolean => {
+  const tab = tabState.tabs.find(t => t.id === tabId)
+  return tab?.state === TabState.ATTACHED_SAVED || false
+}
+
+export const isTabEmpty = (tabId: string): boolean => {
+  const tab = tabState.tabs.find(t => t.id === tabId)
+  return tab?.workflow.name === null
 }

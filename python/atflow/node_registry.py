@@ -1,12 +1,12 @@
-from typing import Type, Dict, List, Optional
+from typing import Type, Dict, Optional
 from dataclasses import dataclass, field
 from pydantic import BaseModel
 
 @dataclass
 class NodeInfo:
-	inputs: List[str] = field(default_factory=list)
-	outputs: List[str] = field(default_factory=list)
-	properties: Optional[type[BaseModel]] = None
+	inputs: Optional[Dict[str, str]] = None
+	outputs: Optional[Dict[str, str]] = None
+	properties: Optional[Dict[str, str]] = None
 	parameters: Optional[type[BaseModel]] = None
 
 @dataclass
@@ -44,16 +44,8 @@ class NodeRegistry:
 
 		# print(environment, inputs, properties)
 
-		# validate properties
-		if info.properties:
-			try:
-				validated_properties = info.properties(**properties).model_dump()
-			except Exception as e:
-				raise ValueError(f"Properties for node {name} are invalid: {e}")
-		validated_properties = properties
-
 		# combine data
-		params = {"task_id": task_id, **environment, **inputs, **validated_properties}
+		params = {"task_id": task_id, **environment, **inputs, **properties}
 		if info.parameters:
 			try:
 				execution_kwargs = info.parameters(**params).model_dump()

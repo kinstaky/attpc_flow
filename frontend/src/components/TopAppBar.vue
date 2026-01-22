@@ -120,7 +120,11 @@ const handleCloseDialogSave = async () => {
           // Save with the new name
           updateActiveTabName(name)
           // Set activeWorkflow first so createWorkflow uses the correct data
-          setActiveWorkflow({ name: name, workspace: activeWorkflow.value?.workspace || null })
+          setActiveWorkflow({
+            name: name,
+            workspace: activeWorkflow.value?.workspace || null,
+            nodes: activeWorkflow.value?.nodes || [],
+          })
           await createWorkflow()
           saveTab(tabId)
         } catch (error) {
@@ -148,7 +152,11 @@ const handleCloseDialogSave = async () => {
     }
 
     // Set activeWorkflow first so createWorkflow uses the correct data
-    setActiveWorkflow({ name: workflowName, workspace: activeWorkflow.value?.workspace || null })
+    setActiveWorkflow({
+      name: workflowName,
+      workspace: activeWorkflow.value?.workspace || null,
+      nodes: activeWorkflow.value?.nodes || [],
+    })
     // Save the workflow
     await createWorkflow()
     saveTab(tabId)

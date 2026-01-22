@@ -15,7 +15,7 @@ bool check_graw_event_id(
 	int run
 ) {
 	std::unique_ptr<atflow::ProgressReporter> progress_reporter = nullptr;
-	
+
 	if (task_id >= 0) {
 		progress_reporter = std::make_unique<atflow::ZmqProgressReporter>(
 			task_id, "ipc://@attpc_flow_zmq"

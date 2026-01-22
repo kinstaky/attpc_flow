@@ -2,18 +2,17 @@ from ..node_registry import NodeRegistry, NodeInfo
 from typing import List
 from pydantic import BaseModel
 
-class ConstIntProperties(BaseModel):
-	value: List[int]
 
-class ConstIntParameters(ConstIntProperties):
+class ConstIntParameters(BaseModel):
 	task_id: int
+	value: List[int]
 
 @NodeRegistry.register(
 	name="const_int",
 	info=NodeInfo(
-		inputs=[],
-		outputs=["ARRAY[INT]"],
-		properties=ConstIntProperties,
+		inputs=None,
+		outputs={"value": "int[]"},
+		properties={"value": "int[]"},
 		parameters=ConstIntParameters,
 	)
 )

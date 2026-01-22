@@ -113,7 +113,11 @@ const saveWorkflow = async () => {
 
       // Name doesn't exist, proceed with save
       // Set activeWorkflow first so createWorkflow uses the correct data
-      setActiveWorkflow({ name: workflowName, workspace: workspaceName.value })
+      setActiveWorkflow({
+        name: workflowName,
+        workspace: workspaceName.value,
+        nodes: activeWorkflow.value?.nodes || [],
+      })
       await createWorkflow()
       saveTab(currentTabId)
     }
@@ -218,7 +222,8 @@ const handleRenameAttached = async (oldName: string, newName: string) => {
     // Update workflow name and workspace
     setActiveWorkflow({
       name: newName,
-      workspace: workspaceName.value
+      workspace: workspaceName.value,
+      nodes: activeWorkflow.value?.nodes || [],
     })
 
     // Create new workflow with new name
@@ -248,7 +253,8 @@ const handleRenameAttached = async (oldName: string, newName: string) => {
     updateActiveTabName(oldName)
     setActiveWorkflow({
       name: oldName,
-      workspace: workspaceName.value
+      workspace: workspaceName.value,
+      nodes: activeWorkflow.value?.nodes || [],
     })
     throw error
   }
@@ -304,7 +310,11 @@ const handleDialogConfirm = async () => {
     currentWorkflow.value = name
 
     // Set activeWorkflow first so createWorkflow uses the correct data
-    setActiveWorkflow({ name: name, workspace: workspaceName.value })
+    setActiveWorkflow({
+      name: name,
+      workspace: workspaceName.value,
+      nodes: activeWorkflow.value?.nodes || [],
+    })
     // Create the workflow
     await createWorkflow()
     saveTab(activeTabId.value)
@@ -364,7 +374,8 @@ const finishEditWorkspace = () => {
   // Update workspace by updating the active workflow
   setActiveWorkflow({
     name: activeTabName.value,
-    workspace: workspaceName.value
+    workspace: workspaceName.value,
+    nodes: activeWorkflow.value?.nodes || [],
   })
   console.log('Workspace path updated to:', workspaceName.value)
 }

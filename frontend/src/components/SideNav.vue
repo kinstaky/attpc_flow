@@ -72,6 +72,18 @@ const fetchNodes = async () => {
   }
 }
 
+const clickNode = async (node: string) => {
+  try {
+    const response = await fetch(`/nodes/${node}`)
+    if (response.ok) {
+      const nodeData = await response.json()
+      console.log(nodeData)
+    }
+  } catch (error) {
+    console.error(`Failed to fetch node ${node}:`, error)
+  }
+}
+
 const fetchWorkflows = async () => {
   try {
     workflows.value = await listWorkflows()
@@ -100,9 +112,6 @@ const openWorkflow = async (workflowName: string) => {
       addNewTab()
       targetTabId = activeTabId.value
     }
-
-    // Set the tab name to match the workflow
-    // updateActiveTabName(workflowName)
 
     // Get workflow data from server
     const workflowData = await getWorkflow(workflowName)
@@ -241,7 +250,7 @@ onMounted(() => {
               <v-list-item
                 v-for="node in nodes"
                 :key="node"
-                @click="() => {}"
+                @click="clickNode(node)"
                 class="node-item"
                 draggable
               >

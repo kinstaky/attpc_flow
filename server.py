@@ -39,10 +39,10 @@ app.mount("/assets", StaticFiles(directory="frontend/dist/assets"), name="assets
 class NodeResponse(BaseModel):
     name: str
     category: str
-    inputs: List[str]
-    outputs: List[str]
-    properties: Optional[Dict[str, Any]] = None
-    parameters: Optional[Dict[str, Any]] = None
+    inputs: Optional[Dict[str, str]] = None
+    outputs: Optional[Dict[str, str]] = None
+    properties: Optional[Dict[str, str]] = None
+    parameters: Optional[Dict[str, str]] = None
 
 class SimpleNodeResponse(BaseModel):
     name: str
@@ -50,10 +50,10 @@ class SimpleNodeResponse(BaseModel):
 
 class WorkflowNode(BaseModel):
     id: str
-    type: str
     position: Dict[str, float]
-    properties: Dict[str, Any] = {}
     inputs: Dict[str, Any] = {}
+    outputs: Dict[str, Any] = {}
+    properties: Dict[str, Any] = {}
 
 class WorkflowConnection(BaseModel):
     source_node: str
@@ -64,8 +64,7 @@ class WorkflowConnection(BaseModel):
 class Workflow(BaseModel):
     name: str
     workspace: Optional[str] = None
-    # description: Optional[str] = ""
-    # nodes: List[WorkflowNode]
+    nodes: List[WorkflowNode]
     # connections: List[WorkflowConnection] = []
 
 class WorkflowExecution(BaseModel):
@@ -89,12 +88,29 @@ WORKFLOWS_DIR.mkdir(exist_ok=True)
 executions: Dict[str, ExecutionStatus] = {}
 
 # Helper functions
+def translate_type(python_type: str) -> str:
+    type_mapping = {
+        "integer": "int",
+        "string": "str",
+        "float": "float",
+        "boolean": "bool"
+    }
+    return type_mapping.get(python_type)
+
 def get_node_schema(pydantic_class) -> Optional[Dict[str, Any]]:
     """Extract JSON schema from Pydantic model."""
     if pydantic_class is None:
         return None
     try:
-        return pydantic_class.model_json_schema()
+        schema = pydantic_class.model_json_schema()
+        return {
+            key: (
+                translate_type(value["items"]["type"]) + "[]"
+                if value["type"] == "array"
+                else translate_type(value["type"])
+            )
+            for key, value in schema["properties"].items()
+        }
     except Exception:
         return None
 
@@ -166,9 +182,33 @@ async def get_node(node_name: str):
             category=category,
             inputs=info.inputs,
             outputs=info.outputs,
-            properties=get_node_schema(info.properties),
-            parameters=get_node_schema(info.parameters)
+            properties=info.properties,
+            parameters=get_node_schema(info.parameters),
         )
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to get node: {str(e)}")
+
+@app.get("/nodes_dev/{node_name}", response_model=Dict[Any, Any])
+async def get_dev_node(node_name: str):
+    try:
+        entry = NodeRegistry._registry.get(node_name)
+        if not entry:
+            raise HTTPException(status_code=404, detail=f"Node '{node_name}' not found")
+
+        info = entry.info
+        module_name = entry.node_class.__module__
+        category = module_name.split('.')[-1]
+
+        return {
+            "name": node_name,
+            "category": category,
+            "inputs": info.inputs,
+            "outputs": info.outputs,
+            "properties": info.properties,
+            "parameters": info.parameters.model_json_schema()
+        }
     except HTTPException:
         raise
     except Exception as e:

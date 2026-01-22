@@ -1,5 +1,5 @@
 import { reactive, computed } from 'vue'
-import { type Workflow } from './workflow'
+import { defaultWorkflow, emptyWorkflow, type Workflow } from './workflow'
 
 // Tab state enum (internal use only)
 enum TabState {
@@ -23,7 +23,7 @@ interface TabsStoreState {
 
 const tabState = reactive<TabsStoreState>({
   tabs: [
-    { id: 'tab1', state: TabState.UNATTACHED, workflow: {name: null, workspace: null } }
+    { id: 'tab1', state: TabState.UNATTACHED, workflow: emptyWorkflow() }
   ],
   activeTabId: 'tab1'
 })
@@ -73,10 +73,7 @@ export const setActiveWorkflow = (workflow: Workflow) => {
 
 export const addNewTab = () => {
   tabCounter++
-  const newWorkflow: Workflow = {
-    name: null,
-    workspace: activeWorkspace.value,
-  }
+  const newWorkflow = defaultWorkflow(activeWorkspace.value)
   const newTab: Tab = {
     id: `tab${tabCounter}`,
     state: TabState.UNATTACHED,

@@ -6,6 +6,7 @@ export interface Workflow {
   name: string | null
   workspace: string | null
   nodes: NodeData[]
+  lastNode: number
   // connections?: WorkflowConnection[]
 }
 
@@ -14,6 +15,7 @@ export function emptyWorkflow() {
     name: null,
     workspace: null,
     nodes: [],
+    lastNode: 0,
   }
 }
 
@@ -22,6 +24,7 @@ export function defaultWorkflow(workspace: string | null) {
     name: null,
     workspace: workspace,
     nodes: [],
+    lastNode: 0,
   }
 }
 

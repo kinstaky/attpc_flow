@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { Handle, Position } from '@vue-flow/core'
 import type { NodeData } from '../types/nodes'
 
@@ -11,30 +11,6 @@ const props = defineProps<Props>()
 
 // Constants for node layout
 const nodeWidth = 360
-
-// Handle array input for str[] type
-// const arrayStringValues = ref<Record<number, string>>({})
-
-// const updateArrayValue = (index: number, value: string) => {
-//   // Convert comma-separated string to array
-//   const array = value.split(',').map(item => item.trim()).filter(item => item)
-//   // Update the property value
-//   const property = props.nodeData.properties[index]
-//   if (property) {
-//     property.value = array
-//   }
-// }
-
-// // Initialize array string values
-// props.nodeData.properties.forEach((property, index) => {
-//   if (property.type === 'str[]') {
-//     if (Array.isArray(property.value)) {
-//       arrayStringValues.value[index] = property.value.join(', ')
-//     } else {
-//       arrayStringValues.value[index] = ''
-//     }
-//   }
-// })
 
 // Get max number of ports to align rows
 const maxPorts = computed(() => Math.max(props.nodeData.inputs.length, props.nodeData.outputs.length))
@@ -66,6 +42,7 @@ const maxPorts = computed(() => Math.max(props.nodeData.inputs.length, props.nod
                 :id="`input-${index - 1}`"
                 type="target"
                 :position="Position.Left"
+                :class="`handle-${nodeData.inputs[index - 1]?.type}`"
               />
             </div>
             <span class="port-label">{{ nodeData.inputs[index - 1]?.name ?? '' }}</span>
@@ -85,6 +62,7 @@ const maxPorts = computed(() => Math.max(props.nodeData.inputs.length, props.nod
                   :id="`output-${index - 1}`"
                   type="source"
                   :position="Position.Right"
+                  :class="`handle-${nodeData.outputs[index - 1]?.type}`"
                 />
               </div>
           </div>
@@ -105,6 +83,7 @@ const maxPorts = computed(() => Math.max(props.nodeData.inputs.length, props.nod
               :id="`property-${index - 1}`"
               type="target"
               :position="Position.Left"
+              :class="`handle-${property.type}`"
             />
           </div>
         </v-col>
@@ -238,6 +217,80 @@ const maxPorts = computed(() => Math.max(props.nodeData.inputs.length, props.nod
 :deep(.property-handle .vue-flow__handle:hover) {
   background-color: #888 !important;
   transform: translateY(-50%) scale(1.2) !important;
+}
+
+/* Type-based handle colors */
+:deep(.handle-int) {
+  background: #4CAF50 !important; /* Green */
+}
+
+:deep(.handle-str) {
+  background: #2196F3 !important; /* Blue */
+}
+
+:deep(.handle-float) {
+  background: #FF9800 !important; /* Orange */
+}
+
+:deep(.handle-bool) {
+  background: #9C27B0 !important; /* Purple */
+}
+
+:deep(.handle-int\[\]) {
+  background: #00BCD4 !important; /* Cyan */
+}
+
+:deep(.handle-str\[\]) {
+  background: #3F51B5 !important; /* Indigo */
+}
+
+:deep(.handle-float\[\]) {
+  background: #FF5722 !important; /* Deep Orange */
+}
+
+:deep(.handle-bool\[\]) {
+  background: #E91E63 !important; /* Pink */
+}
+
+:deep(.handle-connection) {
+  background: #795548 !important; /* Brown */
+}
+
+/* Hover states for type-based handles */
+:deep(.handle-int:hover) {
+  background: #66BB6A !important;
+}
+
+:deep(.handle-str:hover) {
+  background: #42A5F5 !important;
+}
+
+:deep(.handle-float:hover) {
+  background: #FFB74D !important;
+}
+
+:deep(.handle-bool:hover) {
+  background: #AB47BC !important;
+}
+
+:deep(.handle-int\[\]:hover) {
+  background: #26C6DA !important;
+}
+
+:deep(.handle-str\[\]:hover) {
+  background: #5C6BC0 !important;
+}
+
+:deep(.handle-float\[\]:hover) {
+  background: #FF7043 !important;
+}
+
+:deep(.handle-bool\[\]:hover) {
+  background: #EC407A !important;
+}
+
+:deep(.handle-connection:hover) {
+  background: #8D6E63 !important;
 }
 
 :deep(.v-card) {

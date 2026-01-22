@@ -1,5 +1,6 @@
 export interface NodeData {
-    name: string,
+    id: number,
+	name: string,
 	position: { x: number, y: number },
 	inputs: NodeInput[],
 	outputs: NodeOutput[],
@@ -7,12 +8,10 @@ export interface NodeData {
 }
 
 
-export interface NodeInput {
-	name: string,
-	type: InterfaceType,
-}
+export type NodeInput = NodePort
+export type NodeOutput = NodePort
 
-export interface NodeOutput {
+export interface NodePort {
 	name: string,
 	type: InterfaceType,
 }

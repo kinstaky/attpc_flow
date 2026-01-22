@@ -69,7 +69,7 @@ const activeTabModel = computed({
 })
 
 // Local methods
-const handleTabSwitch = (newTabId: string, event?: MouseEvent) => {
+const handleTabSwitch = (newTabId: string, _event?: MouseEvent) => {
   setActiveTab(newTabId)
 }
 
@@ -124,6 +124,7 @@ const handleCloseDialogSave = async () => {
             name: name,
             workspace: activeWorkflow.value?.workspace || null,
             nodes: activeWorkflow.value?.nodes || [],
+            lastNode: activeWorkflow.value?.lastNode || 0,
           })
           await createWorkflow()
           saveTab(tabId)
@@ -156,6 +157,7 @@ const handleCloseDialogSave = async () => {
       name: workflowName,
       workspace: activeWorkflow.value?.workspace || null,
       nodes: activeWorkflow.value?.nodes || [],
+      lastNode: activeWorkflow.value?.lastNode || 0,
     })
     // Save the workflow
     await createWorkflow()
@@ -186,11 +188,11 @@ const handleCloseDialogCancel = () => {
 }
 
 // Name dialog handlers
-const handleNameDialogConfirm = async () => {
+const handleNameDialogConfirm = () => {
   // Clear the active dialog
   dialogs.value.active = null
   if (dialogs.value.name.callback) {
-    await dialogs.value.name.callback()
+    dialogs.value.name.callback()
     dialogs.value.name.callback = null
   }
 }

@@ -4,7 +4,6 @@ import { useTheme } from 'vuetify'
 import {
   addNewTab,
   saveTab,
-  updateActiveTabName,
   activeTabId,
   activeTabName,
   isTabAttached,
@@ -12,6 +11,7 @@ import {
   updateActiveWorkflow
 } from '../stores/tabs'
 import { getWorkflow, listWorkflows } from '../services/workflow'
+import type { NodePort, NodeProperty, NodeData } from '../types/nodes'
 
 // Inject error handler from parent
 const showError = inject<(message: string) => void>('showError', (msg: string) => {
@@ -72,16 +72,64 @@ const fetchNodes = async () => {
   }
 }
 
-const clickNode = async (node: string) => {
+const clickNode = async (nodeName: string) => {
   try {
-    const response = await fetch(`/nodes/${node}`)
+    const response = await fetch(`/nodes/${nodeName}`)
     if (response.ok) {
       const nodeData = await response.json()
       console.log(nodeData)
+
+      // Add node to active workflow at viewport center
+      const workflow = activeWorkflow.value
+      if (workflow) {
+        // Calculate center position (default position if no nodes exist)
+        let position = { x: 400, y: 200 }
+        // If there are existing nodes, place new node at viewport center
+        if (workflow.nodes.length > 0) {
+          // Simple center positioning - could be enhanced with actual viewport calculation
+          position = { x: 400 + Math.random() * 100, y: 200 + Math.random() * 100 }
+        }
+
+        const newNode: NodeData = {
+          id: workflow.lastNode,
+          name: nodeName,
+          position: {x: position.x, y: position.y},
+          inputs: adaptNodePorts(nodeData.inputs),
+          outputs: adaptNodePorts(nodeData.outputs),
+          properties: adaptNodeProperties(nodeData.properties),
+        }
+
+        console.log(newNode)
+        workflow.nodes.push(newNode)
+        ++workflow.lastNode
+
+        console.log(`Added node ${nodeName} to workflow at position`, position)
+      }
     }
   } catch (error) {
-    console.error(`Failed to fetch node ${node}:`, error)
+    console.error(`Failed to fetch node ${nodeName}:`, error)
   }
+}
+
+const adaptNodePorts = (ports: Record<string, string> | null) => {
+  if (!ports) return []
+  return Object.entries(ports).map(([name, type]) => {
+    return {
+      name: name,
+      type: type,
+    } as NodePort
+  })
+}
+
+const adaptNodeProperties = (properties: Record<string, string> | null) => {
+  if (!properties) return []
+  return Object.entries(properties).map(([name, type]) => {
+    return {
+      name: name,
+      type: type,
+      value: "",
+    } as NodeProperty
+  })
 }
 
 const fetchWorkflows = async () => {
@@ -100,7 +148,7 @@ const openWorkflow = async (workflowName: string) => {
     const currentTabId = activeTabId.value
     const currentTabName = activeTabName.value
     const isAttachedTab = isTabAttached(currentTabId)
-    const currentWorkflow = activeWorkflow.value ?? null
+    // const currentWorkflow = activeWorkflow.value ?? null
 
     let targetTabId: string
 

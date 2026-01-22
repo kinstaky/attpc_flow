@@ -13,6 +13,8 @@ declare module 'vue' {
   export interface GlobalComponents {
     ATTPCFlow: typeof import('./src/components/ATTPCFlow.vue')['default']
     FloatingButtons: typeof import('./src/components/FloatingButtons.vue')['default']
+    FlowCanvas: typeof import('./src/components/FlowCanvas.vue')['default']
+    FlowNode: typeof import('./src/components/FlowNode.vue')['default']
     SideNav: typeof import('./src/components/SideNav.vue')['default']
     TopAppBar: typeof import('./src/components/TopAppBar.vue')['default']
   }

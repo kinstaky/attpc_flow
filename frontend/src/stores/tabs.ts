@@ -1,5 +1,6 @@
 import { reactive, computed } from 'vue'
 import { defaultWorkflow, emptyWorkflow, type Workflow } from './workflow'
+import type { NodeData } from '../types/nodes'
 
 // Tab state enum (internal use only)
 enum TabState {
@@ -23,7 +24,39 @@ interface TabsStoreState {
 
 const tabState = reactive<TabsStoreState>({
   tabs: [
-    { id: 'tab1', state: TabState.UNATTACHED, workflow: emptyWorkflow() }
+    {
+      id: 'tab1',
+      state: TabState.UNATTACHED,
+      workflow: {
+        name: null,
+        workspace: null,
+        nodes: [
+          {
+            name: "const_int",
+            position: { x: 100, y: 100 },
+            inputs: [],
+            outputs: [
+              { name: "value", type: "int[]" }
+            ],
+            properties: [
+              { name: "value", type: "int[]", value: "1055" }
+            ]
+          },
+          {
+            name: "check_graw_event_id",
+            position: { x: 400, y: 100 },
+            inputs: [],
+            outputs: [
+              { name: "result", type: "bool" }
+            ],
+            properties: [
+              { name: "run", type: "int", value: 1055 },
+              { name: "graw_dir", type: "str", value: "/data/rcnp2025/" }
+            ]
+          }
+        ]
+      }
+    }
   ],
   activeTabId: 'tab1'
 })

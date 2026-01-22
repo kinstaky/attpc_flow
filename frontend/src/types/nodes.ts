@@ -1,6 +1,6 @@
 export interface NodeData {
     name: string,
-	positon: { x: number, y: number },
+	position: { x: number, y: number },
 	inputs: NodeInput[],
 	outputs: NodeOutput[],
 	properties: NodeProperty[],
@@ -19,7 +19,7 @@ export interface NodeOutput {
 
 export interface NodeProperty {
 	name: string,
-	type: InterfaceType,
+	type: InterfaceType | "connection",
 	value: any,
 }
 

@@ -1,10 +1,19 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Handle, Position } from '@vue-flow/core'
-import { NodeData, interfaceColor, interfaceHoverColor, basicType, isArrayType } from '../types/nodes'
+import { NodeData, interfaceColor, interfaceHoverColor, basicType, isArrayType, InterfaceType } from '../types/nodes'
+
+interface Linking {
+  active: boolean,
+  node: number,
+  portIndex: number,
+  portType: string,
+  dataType: InterfaceType
+}
 
 interface Props {
   nodeData: NodeData
+  linking: Linking
 }
 
 const props = defineProps<Props>()
@@ -14,6 +23,32 @@ const nodeWidth = 360
 
 // Get max number of ports to align rows
 const maxPorts = computed(() => Math.max(props.nodeData.inputs.length, props.nodeData.outputs.length))
+
+const linkable = (nodeId: number, portType: string, dataType: InterfaceType) => {
+  if (!props.linking.active) return false
+  if (nodeId == props.linking.node) return false
+  if (props.linking.portType == "input") {
+    if (portType != "output") return false
+    if (basicType(dataType) != basicType(props.linking.dataType)) return false
+    return true
+  } else if (props.linking.portType == "output") {
+    if (portType == "output") return false
+    if (basicType(dataType) != basicType(props.linking.dataType)) return false
+    return true
+  } else if (props.linking.portType == "property") {
+    if (portType != "output") return false
+    if (basicType(dataType) != basicType(props.linking.dataType)) return false
+    return true
+  }
+  return false
+}
+
+const isPropertySelf = (nodeId: number, portIndex: number) => {
+  return props.linking.portType == "property"
+    && props.linking.node == nodeId
+    && props.linking.portIndex == portIndex
+}
+
 </script>
 
 <template>
@@ -43,6 +78,8 @@ const maxPorts = computed(() => Math.max(props.nodeData.inputs.length, props.nod
                 type="target"
                 :position="Position.Left"
                 :class="[
+                  props.linking.active && !linkable(nodeData.id, 'input', nodeData.inputs[index-1]?.type)
+                    ? 'handle-hidden' : '',
                   `handle-${basicType(nodeData.inputs[index - 1]?.type)}`,
                   isArrayType(nodeData.inputs[index - 1]?.type) ? 'handle-array' : '',
                 ]"
@@ -66,6 +103,8 @@ const maxPorts = computed(() => Math.max(props.nodeData.inputs.length, props.nod
                   type="source"
                   :position="Position.Right"
                   :class="[
+                    props.linking.active && !linkable(nodeData.id, 'output', nodeData.outputs[index-1]?.type)
+                      ? 'handle-hidden' : '',
                     `handle-${basicType(nodeData.outputs[index-1]?.type)}`,
                     isArrayType(nodeData.outputs[index-1]?.type) ? 'handle-array' : '',
                   ]"
@@ -90,7 +129,11 @@ const maxPorts = computed(() => Math.max(props.nodeData.inputs.length, props.nod
               type="target"
               :position="Position.Left"
               :class="[
-                property.linked ? '' : 'handle-unlinked',
+                props.linking.active ?
+                  linkable(nodeData.id, 'property', property.type)
+                    || isPropertySelf(nodeData.id, index)
+                    ? '' : 'handle-hidden'
+                  : property.linked ? '' : 'handle-unlinked',
                 `handle-${basicType(property.type)}`,
                 isArrayType(property.type) ? 'handle-array' : '',
               ]"
@@ -269,6 +312,10 @@ const maxPorts = computed(() => Math.max(props.nodeData.inputs.length, props.nod
 
 :deep(.handle-unlinked) {
   background: #333 !important;
+}
+
+:deep(.handle-hidden) {
+  opacity: 0 !important;
 }
 
 :deep(.handle-unlinked.handle-int:hover) {

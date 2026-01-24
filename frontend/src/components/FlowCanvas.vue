@@ -127,8 +127,6 @@ const handleConnectStart = (event: OnConnectStartParams) => {
     return
   }
   linking.active = true
-
-  console.log("Start link:", linking)
 }
 
 const handleConnectEnd = (_event: any) => {

@@ -10,7 +10,7 @@ import {
   activeWorkflow,
   updateActiveWorkflow
 } from '../stores/tabs'
-import { getWorkflow, listWorkflows } from '../services/workflow'
+import { getWorkflow, listWorkflows } from '../api/workflow'
 import type { NodePort, NodeProperty, NodeData } from '../types/nodes'
 
 // Inject error handler from parent

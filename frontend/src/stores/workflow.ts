@@ -16,8 +16,8 @@ export function defaultWorkflow(workspace?: string | null) {
     name: null,
     workspace: workspace || null,
     nodes: [],
-    lastNode: 0,
     links: [],
+    lastNode: 0,
     lastLink: 0,
   }
 }

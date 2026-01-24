@@ -24,7 +24,7 @@ import {
   deleteWorkflow,
   listWorkflows,
   workflowNameExists,
-} from '../services/workflow'
+} from '../api/workflow'
 
 // Inject error handler from parent
 const showError = inject<(message: string) => void>('showError', (msg: string) => {

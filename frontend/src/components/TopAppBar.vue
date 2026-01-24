@@ -14,7 +14,7 @@ import {
   addNewTab,
   deleteTab as deleteTabFromStore
 } from '../stores/tabs'
-import { createWorkflow, workflowNameExists } from '../services/workflow'
+import { createWorkflow, workflowNameExists } from '../api/workflow'
 import { copyWorkflow, type Workflow } from '../stores/workflow'
 
 // Inject error handler from parent

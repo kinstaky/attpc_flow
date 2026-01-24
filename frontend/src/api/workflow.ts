@@ -52,7 +52,7 @@ export const deleteWorkflow = async (): Promise<void> => {
   }
 }
 
-// List workflows
+// List workflows via GET API
 export const listWorkflows = async (): Promise<string[]> => {
   const response = await fetch(`${API_BASE}/workflows`)
   if (!response.ok) {
@@ -62,6 +62,7 @@ export const listWorkflows = async (): Promise<string[]> => {
   return workflows
 }
 
+// get specific workflow via GET API
 export const getWorkflow = async (workflowName: string) => {
   const response = await fetch(`${API_BASE}/workflows/${workflowName}`)
   if (!response.ok) {

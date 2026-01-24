@@ -8,10 +8,9 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Dict, List, Optional, Any
 import json
-import os
 from pathlib import Path
 
 from atflow.node_registry import NodeRegistry
@@ -26,7 +25,7 @@ app = FastAPI(
 # Enable CORS for frontend development
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],  # In production, specify actual origins
+    allow_origins=["*"],  # In production, specify actual origins
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -35,7 +34,18 @@ app.add_middleware(
 # Mount static files for frontend
 app.mount("/assets", StaticFiles(directory="frontend/dist/assets"), name="assets")
 
+def to_camel(string: str) -> str:
+    return ''.join(word.capitalize() for word in string.split('_'))
+
+def to_lower_camel(s: str) -> str:
+    parts = s.split("_")
+    return parts[0] + "".join(word.capitalize() for word in parts[1:])
+
 # Data models
+class SimpleNodeResponse(BaseModel):
+    name: str
+    category: str
+
 class NodeResponse(BaseModel):
     name: str
     category: str
@@ -44,48 +54,49 @@ class NodeResponse(BaseModel):
     properties: Optional[Dict[str, str]] = None
     parameters: Optional[Dict[str, str]] = None
 
-class SimpleNodeResponse(BaseModel):
-    name: str
-    category: str
-
 class WorkflowNode(BaseModel):
-    id: str
+    id: int
+    name: str
     position: Dict[str, float]
-    inputs: Dict[str, Any] = {}
-    outputs: Dict[str, Any] = {}
-    properties: Dict[str, Any] = {}
+    inputs: List[Dict[str, str]] = Field(default_factory=list)
+    outputs: List[Dict[str, str]] = Field(default_factory=list)
+    properties: List[Dict[str, Any]] = Field(default_factory=list)
 
-class WorkflowConnection(BaseModel):
-    source_node: str
-    source_output: str
-    target_node: str
-    target_input: str
+class WorkflowLink(BaseModel):
+    id: int
+    source: int
+    sourceHandle: str
+    target: int
+    targetHandle: str
 
 class Workflow(BaseModel):
+    # model_config = ConfigDict(alias_generator=to_lower_camel)
     name: str
     workspace: Optional[str] = None
-    nodes: List[WorkflowNode]
-    # connections: List[WorkflowConnection] = []
+    nodes: List[WorkflowNode] = Field(default_factory=list)
+    links: List[WorkflowLink] = Field(default_factory=list)
+    last_node: int = Field(alias="lastNode")
+    last_link: int = Field(alias="lastLink")
 
-class WorkflowExecution(BaseModel):
-    workflow_id: str
-    environment: Dict[str, Any] = {}
+# class WorkflowExecution(BaseModel):
+#     workflow_id: str
+#     environment: Dict[str, Any] = {}
 
-class ExecutionStatus(BaseModel):
-    execution_id: str
-    workflow_id: str
-    status: str  # pending, running, completed, failed
-    message: Optional[str] = ""
-    started_at: Optional[str] = None
-    completed_at: Optional[str] = None
-    results: Optional[Dict[str, Any]] = None
+# class ExecutionStatus(BaseModel):
+#     execution_id: str
+#     workflow_id: str
+#     status: str  # pending, running, completed, failed
+#     message: Optional[str] = ""
+#     started_at: Optional[str] = None
+#     completed_at: Optional[str] = None
+#     results: Optional[Dict[str, Any]] = None
 
 # Storage
 WORKFLOWS_DIR = Path("workflows")
 WORKFLOWS_DIR.mkdir(exist_ok=True)
 
 # In-memory execution tracking (for demo purposes)
-executions: Dict[str, ExecutionStatus] = {}
+# executions: Dict[str, ExecutionStatus] = {}
 
 # Helper functions
 def translate_type(python_type: str) -> str:
@@ -232,7 +243,7 @@ async def create_workflow(workflow: Workflow):
         # Save to file
         file_path = WORKFLOWS_DIR / f"{workflow.name}.json"
         with open(file_path, 'w') as f:
-            json.dump(workflow.model_dump(), f, indent=2)
+            json.dump(workflow.model_dump(by_alias=True), f, indent=2)
 
         return workflow
     except Exception as e:
@@ -248,7 +259,7 @@ async def get_workflow(workflow_id: str):
 
         with open(file_path, 'r') as f:
             workflow_data = json.load(f)
-            return Workflow(**workflow_data)
+            return Workflow.model_validate(workflow_data)
     except HTTPException:
         raise
     except Exception as e:
@@ -265,7 +276,7 @@ async def update_workflow(workflow_id: str, workflow: Workflow):
 
         # Save updated workflow
         with open(file_path, 'w') as f:
-            json.dump(workflow.model_dump(), f, indent=2)
+            json.dump(workflow.model_dump(by_alias=True), f, indent=2)
 
         return workflow
     except HTTPException:
@@ -288,69 +299,69 @@ async def delete_workflow(workflow_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete workflow: {str(e)}")
 
-@app.post("/workflows/{workflow_id}/execute", response_model=ExecutionStatus)
-async def execute_workflow(workflow_id: str, execution: Optional[WorkflowExecution] = None):
-    """Execute a workflow."""
-    try:
-        # Load workflow
-        file_path = WORKFLOWS_DIR / f"{workflow_id}.json"
-        if not file_path.exists():
-            raise HTTPException(status_code=404, detail=f"Workflow '{workflow_id}' not found")
+# @app.post("/workflows/{workflow_id}/execute", response_model=ExecutionStatus)
+# async def execute_workflow(workflow_id: str, execution: Optional[WorkflowExecution] = None):
+#     """Execute a workflow."""
+#     try:
+#         # Load workflow
+#         file_path = WORKFLOWS_DIR / f"{workflow_id}.json"
+#         if not file_path.exists():
+#             raise HTTPException(status_code=404, detail=f"Workflow '{workflow_id}' not found")
 
-        with open(file_path, 'r') as f:
-            workflow_data = json.load(f)
-            workflow = Workflow(**workflow_data)
+#         with open(file_path, 'r') as f:
+#             workflow_data = json.load(f)
+#             workflow = Workflow(**workflow_data)
 
-        # Generate execution ID
-        import uuid
-        execution_id = str(uuid.uuid4())
+#         # Generate execution ID
+#         import uuid
+#         execution_id = str(uuid.uuid4())
 
-        # Create execution status
-        from datetime import datetime, timezone
-        status = ExecutionStatus(
-            execution_id=execution_id,
-            workflow_id=workflow_id,
-            status="pending",
-            message="Workflow execution queued",
-            started_at=datetime.now(timezone.utc).isoformat()
-        )
+#         # Create execution status
+#         from datetime import datetime, timezone
+#         status = ExecutionStatus(
+#             execution_id=execution_id,
+#             workflow_id=workflow_id,
+#             status="pending",
+#             message="Workflow execution queued",
+#             started_at=datetime.now(timezone.utc).isoformat()
+#         )
 
-        # Store execution status
-        executions[execution_id] = status
+#         # Store execution status
+#         executions[execution_id] = status
 
-        # TODO: Convert workflow to Processor format and execute
-        # For now, simulate execution
-        status.status = "completed"
-        status.message = "Workflow completed successfully (demo mode)"
-        status.completed_at = datetime.now(timezone.utc).isoformat()
-        status.results = {"message": "Demo execution completed"}
+#         # TODO: Convert workflow to Processor format and execute
+#         # For now, simulate execution
+#         status.status = "completed"
+#         status.message = "Workflow completed successfully (demo mode)"
+#         status.completed_at = datetime.now(timezone.utc).isoformat()
+#         status.results = {"message": "Demo execution completed"}
 
-        return status
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to execute workflow: {str(e)}")
+#         return status
+#     except HTTPException:
+#         raise
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=f"Failed to execute workflow: {str(e)}")
 
-@app.get("/executions/{execution_id}", response_model=ExecutionStatus)
-async def get_execution_status(execution_id: str):
-    """Get specific execution status."""
-    try:
-        if execution_id not in executions:
-            raise HTTPException(status_code=404, detail=f"Execution '{execution_id}' not found")
+# @app.get("/executions/{execution_id}", response_model=ExecutionStatus)
+# async def get_execution_status(execution_id: str):
+#     """Get specific execution status."""
+#     try:
+#         if execution_id not in executions:
+#             raise HTTPException(status_code=404, detail=f"Execution '{execution_id}' not found")
 
-        return executions[execution_id]
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get execution status: {str(e)}")
+#         return executions[execution_id]
+#     except HTTPException:
+#         raise
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=f"Failed to get execution status: {str(e)}")
 
-@app.get("/executions", response_model=List[ExecutionStatus])
-async def list_executions():
-    """List all executions."""
-    try:
-        return list(executions.values())
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to list executions: {str(e)}")
+# @app.get("/executions", response_model=List[ExecutionStatus])
+# async def list_executions():
+#     """List all executions."""
+#     try:
+#         return list(executions.values())
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=f"Failed to list executions: {str(e)}")
 
 # Health check
 @app.get("/health")

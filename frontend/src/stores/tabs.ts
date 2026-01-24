@@ -26,12 +26,7 @@ const tabState = reactive<TabsStoreState>({
     {
       id: 'tab1',
       state: TabState.UNATTACHED,
-      workflow: {
-        name: null,
-        workspace: null,
-        nodes: [],
-        lastNode: 0,
-      }
+      workflow: defaultWorkflow()
     }
   ],
   activeTabId: 'tab1'

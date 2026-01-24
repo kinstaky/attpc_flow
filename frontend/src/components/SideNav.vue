@@ -77,7 +77,6 @@ const clickNode = async (nodeName: string) => {
     const response = await fetch(`/nodes/${nodeName}`)
     if (response.ok) {
       const nodeData = await response.json()
-      console.log(nodeData)
 
       // Add node to active workflow at viewport center
       const workflow = activeWorkflow.value
@@ -99,11 +98,8 @@ const clickNode = async (nodeName: string) => {
           properties: adaptNodeProperties(nodeData.properties),
         }
 
-        console.log(newNode)
         workflow.nodes.push(newNode)
         ++workflow.lastNode
-
-        console.log(`Added node ${nodeName} to workflow at position`, position)
       }
     }
   } catch (error) {
@@ -128,6 +124,7 @@ const adaptNodeProperties = (properties: Record<string, string> | null) => {
       name: name,
       type: type,
       value: "",
+      linked: false,
     } as NodeProperty
   })
 }

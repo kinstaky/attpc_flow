@@ -15,6 +15,10 @@ import {
   activeWorkflow
 } from '../stores/tabs'
 import {
+  type Workflow,
+  copyWorkflow,
+} from '../stores/workflow'
+import {
   createWorkflow,
   updateWorkflow as updateWorkflowService,
   deleteWorkflow,
@@ -113,12 +117,7 @@ const saveWorkflow = async () => {
 
       // Name doesn't exist, proceed with save
       // Set activeWorkflow first so createWorkflow uses the correct data
-      setActiveWorkflow({
-        name: workflowName,
-        workspace: workspaceName.value,
-        nodes: activeWorkflow.value?.nodes || [],
-        lastNode: activeWorkflow.value?.lastNode || 0,
-      })
+      setActiveWorkflow(copyWorkflow(activeWorkflow.value as Workflow, workflowName))
       await createWorkflow()
       saveTab(currentTabId)
     }
@@ -220,13 +219,8 @@ const cancelRename = () => {
 // Handle rename for attached tabs - create new workflow and delete old one
 const handleRenameAttached = async (oldName: string, newName: string) => {
   try {
-    // Update workflow name and workspace
-    setActiveWorkflow({
-      name: newName,
-      workspace: workspaceName.value,
-      nodes: activeWorkflow.value?.nodes || [],
-      lastNode: activeWorkflow.value?.lastNode || 0,
-    })
+    // Update workflow
+    setActiveWorkflow(copyWorkflow(activeWorkflow.value as Workflow, newName))
 
     // Create new workflow with new name
     await createWorkflow()
@@ -252,12 +246,7 @@ const handleRenameAttached = async (oldName: string, newName: string) => {
   } catch (error) {
     // Revert name change on error
     updateActiveTabName(oldName)
-    setActiveWorkflow({
-      name: oldName,
-      workspace: workspaceName.value,
-      nodes: activeWorkflow.value?.nodes || [],
-      lastNode: activeWorkflow.value?.lastNode || 0,
-    })
+    setActiveWorkflow(copyWorkflow(activeWorkflow.value as Workflow, oldName))
     throw error
   }
 }
@@ -312,12 +301,7 @@ const handleDialogConfirm = async () => {
     currentWorkflow.value = name
 
     // Set activeWorkflow first so createWorkflow uses the correct data
-    setActiveWorkflow({
-      name: name,
-      workspace: workspaceName.value,
-      nodes: activeWorkflow.value?.nodes || [],
-      lastNode: activeWorkflow.value?.lastNode || 0,
-    })
+    setActiveWorkflow(copyWorkflow(activeWorkflow.value as Workflow, name))
     // Create the workflow
     await createWorkflow()
     saveTab(activeTabId.value)
@@ -375,12 +359,7 @@ const startEditWorkspace = () => {
 const finishEditWorkspace = () => {
   isEditingWorkspace.value = false
   // Update workspace by updating the active workflow
-  setActiveWorkflow({
-    name: activeTabName.value,
-    workspace: workspaceName.value,
-    nodes: activeWorkflow.value?.nodes || [],
-    lastNode: activeWorkflow.value?.lastNode || 0,
-  })
+  setActiveWorkflow(copyWorkflow(activeWorkflow.value as Workflow))
   console.log('Workspace path updated to:', workspaceName.value)
 }
 

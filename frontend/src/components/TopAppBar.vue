@@ -15,6 +15,7 @@ import {
   deleteTab as deleteTabFromStore
 } from '../stores/tabs'
 import { createWorkflow, workflowNameExists } from '../services/workflow'
+import { copyWorkflow, type Workflow } from '../stores/workflow'
 
 // Inject error handler from parent
 const showError = inject<(message: string) => void>('showError', (msg: string) => {
@@ -120,12 +121,7 @@ const handleCloseDialogSave = async () => {
           // Save with the new name
           updateActiveTabName(name)
           // Set activeWorkflow first so createWorkflow uses the correct data
-          setActiveWorkflow({
-            name: name,
-            workspace: activeWorkflow.value?.workspace || null,
-            nodes: activeWorkflow.value?.nodes || [],
-            lastNode: activeWorkflow.value?.lastNode || 0,
-          })
+          setActiveWorkflow(copyWorkflow(activeWorkflow.value as Workflow, name))
           await createWorkflow()
           saveTab(tabId)
         } catch (error) {
@@ -153,12 +149,7 @@ const handleCloseDialogSave = async () => {
     }
 
     // Set activeWorkflow first so createWorkflow uses the correct data
-    setActiveWorkflow({
-      name: workflowName,
-      workspace: activeWorkflow.value?.workspace || null,
-      nodes: activeWorkflow.value?.nodes || [],
-      lastNode: activeWorkflow.value?.lastNode || 0,
-    })
+    setActiveWorkflow(copyWorkflow(activeWorkflow.value as Workflow, workflowName))
     // Save the workflow
     await createWorkflow()
     saveTab(tabId)

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Handle, Position } from '@vue-flow/core'
-import type { NodeData } from '../types/nodes'
+import { NodeData, interfaceColor, interfaceHoverColor, basicType, isArrayType } from '../types/nodes'
 
 interface Props {
   nodeData: NodeData
@@ -42,7 +42,10 @@ const maxPorts = computed(() => Math.max(props.nodeData.inputs.length, props.nod
                 :id="`input-${index - 1}`"
                 type="target"
                 :position="Position.Left"
-                :class="`handle-${nodeData.inputs[index - 1]?.type}`"
+                :class="[
+                  `handle-${basicType(nodeData.inputs[index - 1]?.type)}`,
+                  isArrayType(nodeData.inputs[index - 1]?.type) ? 'handle-array' : '',
+                ]"
               />
             </div>
             <span class="port-label">{{ nodeData.inputs[index - 1]?.name ?? '' }}</span>
@@ -62,7 +65,10 @@ const maxPorts = computed(() => Math.max(props.nodeData.inputs.length, props.nod
                   :id="`output-${index - 1}`"
                   type="source"
                   :position="Position.Right"
-                  :class="`handle-${nodeData.outputs[index - 1]?.type}`"
+                  :class="[
+                    `handle-${basicType(nodeData.outputs[index-1]?.type)}`,
+                    isArrayType(nodeData.outputs[index-1]?.type) ? 'handle-array' : '',
+                  ]"
                 />
               </div>
           </div>
@@ -80,10 +86,14 @@ const maxPorts = computed(() => Math.max(props.nodeData.inputs.length, props.nod
         <v-col cols="1" class="pa-1">
           <div class="property-handle">
             <Handle
-              :id="`property-${index - 1}`"
+              :id="`property-${index}`"
               type="target"
               :position="Position.Left"
-              :class="`handle-${property.type}`"
+              :class="[
+                property.linked ? '' : 'handle-unlinked',
+                `handle-${basicType(property.type)}`,
+                isArrayType(property.type) ? 'handle-array' : '',
+              ]"
             />
           </div>
         </v-col>
@@ -94,6 +104,7 @@ const maxPorts = computed(() => Math.max(props.nodeData.inputs.length, props.nod
             density="compact"
             hide-details
             class="property-field"
+            :disabled="property.linked"
           >
             <template v-slot:prepend-inner>
               <span class="property-prepend-inner">{{ property.name }}</span>
@@ -139,12 +150,10 @@ const maxPorts = computed(() => Math.max(props.nodeData.inputs.length, props.nod
 
 .port-input-container {
   justify-content: flex-start;
-  /* padding-left: 8px; */
 }
 
 .port-output-container {
   justify-content: flex-end;
-  /* padding-right: 8px; */
 }
 
 .port-handle {
@@ -177,6 +186,10 @@ const maxPorts = computed(() => Math.max(props.nodeData.inputs.length, props.nod
   width: 100%;
 }
 
+:deep(.property-field .v-field--variant-outlined .v-field__outline) {
+  color: #eee !important;
+}
+
 :deep(.property-field input) {
   text-align: right;
 }
@@ -205,92 +218,73 @@ const maxPorts = computed(() => Math.max(props.nodeData.inputs.length, props.nod
   transform: translateY(-50%) !important;
 }
 
-:deep(.vue-flow__handle:hover) {
-  background: #888 !important;
-  transform: translateY(-50%) scale(1.2) !important;
-}
-
-:deep(.property-handle .vue-flow__handle) {
-  background-color: #333 !important;
-}
-
-:deep(.property-handle .vue-flow__handle:hover) {
-  background-color: #888 !important;
-  transform: translateY(-50%) scale(1.2) !important;
-}
-
 /* Type-based handle colors */
 :deep(.handle-int) {
-  background: #4CAF50 !important; /* Green */
+  background: v-bind('interfaceColor["int"]') !important; /* Green */
 }
 
 :deep(.handle-str) {
-  background: #2196F3 !important; /* Blue */
+  background: v-bind('interfaceColor["str"]') !important; /* Blue */
 }
 
 :deep(.handle-float) {
-  background: #FF9800 !important; /* Orange */
+  background: v-bind('interfaceColor["float"]') !important; /* Orange */
 }
 
 :deep(.handle-bool) {
-  background: #9C27B0 !important; /* Purple */
+  background: v-bind('interfaceColor["bool"]') !important; /* Purple */
 }
 
-:deep(.handle-int\[\]) {
-  background: #00BCD4 !important; /* Cyan */
+:deep(.vue-flow__handle:hover) {
+  transform: translateY(-50%) scale(1.2) !important;
 }
 
-:deep(.handle-str\[\]) {
-  background: #3F51B5 !important; /* Indigo */
+/* Array shape transformation */
+:deep(.handle-array) {
+  border-radius: 0% !important; /* Square for arrays */
+  transform: translateY(-50%) rotate(45deg) !important; /* Diamond shape */
 }
 
-:deep(.handle-float\[\]) {
-  background: #FF5722 !important; /* Deep Orange */
-}
-
-:deep(.handle-bool\[\]) {
-  background: #E91E63 !important; /* Pink */
-}
-
-:deep(.handle-connection) {
-  background: #795548 !important; /* Brown */
-}
-
-/* Hover states for type-based handles */
+/* Hover states for type-based handles  */
 :deep(.handle-int:hover) {
-  background: #66BB6A !important;
+  background: v-bind('interfaceHoverColor["int"]') !important;
 }
 
 :deep(.handle-str:hover) {
-  background: #42A5F5 !important;
+  background: v-bind('interfaceHoverColor["str"]') !important;
 }
 
 :deep(.handle-float:hover) {
-  background: #FFB74D !important;
+  background: v-bind('interfaceHoverColor["float"]') !important;
 }
 
 :deep(.handle-bool:hover) {
-  background: #AB47BC !important;
+  background: v-bind('interfaceHoverColor["bool"]') !important;
 }
 
-:deep(.handle-int\[\]:hover) {
-  background: #26C6DA !important;
+/* Array hover states - maintain diamond shape with scaling */
+:deep(.handle-array:hover) {
+  transform: translateY(-50%) rotate(45deg) scale(1.2) !important;
 }
 
-:deep(.handle-str\[\]:hover) {
-  background: #5C6BC0 !important;
+:deep(.handle-unlinked) {
+  background: #333 !important;
 }
 
-:deep(.handle-float\[\]:hover) {
-  background: #FF7043 !important;
+:deep(.handle-unlinked.handle-int:hover) {
+  background: v-bind('interfaceHoverColor["int"]') !important;
 }
 
-:deep(.handle-bool\[\]:hover) {
-  background: #EC407A !important;
+:deep(.handle-unlinked.handle-float:hover) {
+  background: v-bind('interfaceHoverColor["float"]') !important;
 }
 
-:deep(.handle-connection:hover) {
-  background: #8D6E63 !important;
+:deep(.handle-unlinked.handle-bool:hover) {
+  background: v-bind('interfaceHoverColor["bool"]') !important;
+}
+
+:deep(.handle-unlinked.handle-str:hover) {
+  background: v-bind('interfaceHoverColor["str"]') !important;
 }
 
 :deep(.v-card) {

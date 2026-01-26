@@ -43,10 +43,22 @@ const linkable = (nodeId: number, portType: string, dataType: InterfaceType) => 
   return false
 }
 
-const isPropertySelf = (nodeId: number, portIndex: number) => {
-  return props.linking.portType == "property"
+const isHandleSelf = (nodeId: number, portType: string, portIndex: number) => {
+  return props.linking.portType == portType
     && props.linking.node == nodeId
     && props.linking.portIndex == portIndex
+}
+
+const isInputSelf = (nodeId: number, portIndex: number) => {
+  return isHandleSelf(nodeId, "input", portIndex)
+}
+
+const isOutputSelf = (nodeId: number, portIndex: number) => {
+  return isHandleSelf(nodeId, "output", portIndex)
+}
+
+const isPropertySelf = (nodeId: number, portIndex: number) => {
+  return isHandleSelf(nodeId, "property", portIndex)
 }
 
 </script>
@@ -78,7 +90,9 @@ const isPropertySelf = (nodeId: number, portIndex: number) => {
                 type="target"
                 :position="Position.Left"
                 :class="[
-                  props.linking.active && !linkable(nodeData.id, 'input', nodeData.inputs[index-1]?.type)
+                  props.linking.active
+                    && !linkable(nodeData.id, 'input', nodeData.inputs[index-1]?.type)
+                    && !isInputSelf(nodeData.id, index-1)
                     ? 'handle-hidden' : '',
                   `handle-${basicType(nodeData.inputs[index - 1]?.type)}`,
                   isArrayType(nodeData.inputs[index - 1]?.type) ? 'handle-array' : '',
@@ -103,7 +117,9 @@ const isPropertySelf = (nodeId: number, portIndex: number) => {
                   type="source"
                   :position="Position.Right"
                   :class="[
-                    props.linking.active && !linkable(nodeData.id, 'output', nodeData.outputs[index-1]?.type)
+                    props.linking.active
+                      && !linkable(nodeData.id, 'output', nodeData.outputs[index-1]?.type)
+                      && !isOutputSelf(nodeData.id, index-1)
                       ? 'handle-hidden' : '',
                     `handle-${basicType(nodeData.outputs[index-1]?.type)}`,
                     isArrayType(nodeData.outputs[index-1]?.type) ? 'handle-array' : '',

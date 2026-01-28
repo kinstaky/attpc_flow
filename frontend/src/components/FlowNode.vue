@@ -29,15 +29,15 @@ const linkable = (nodeId: number, portType: string, dataType: InterfaceType) => 
   if (nodeId == props.linking.node) return false
   if (props.linking.portType == "input") {
     if (portType != "output") return false
-    if (basicType(dataType) != basicType(props.linking.dataType)) return false
+    if (dataType != props.linking.dataType) return false
     return true
   } else if (props.linking.portType == "output") {
     if (portType == "output") return false
-    if (basicType(dataType) != basicType(props.linking.dataType)) return false
+    if (dataType != props.linking.dataType) return false
     return true
   } else if (props.linking.portType == "property") {
     if (portType != "output") return false
-    if (basicType(dataType) != basicType(props.linking.dataType)) return false
+    if (dataType != props.linking.dataType) return false
     return true
   }
   return false

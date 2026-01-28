@@ -13,7 +13,7 @@ class CheckGrawEventIdParameters(BaseModel):
 	name="check_graw_event_id",
 	info=NodeInfo(
 		inputs=None,
-		outputs={"result": "bool"},
+		outputs={"run": "int"},
 		properties={"graw_dir": "str", "run": "int"},
 		parameters=CheckGrawEventIdParameters,
 	)

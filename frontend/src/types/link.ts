@@ -42,7 +42,7 @@ export const validateLink = (workflow: Workflow, connection: Connection) => {
   const targetType = getPortType(workflow, target, targetHandle)
   if (!sourceType || !targetType) return false
 
-  return basicType(sourceType) == basicType(targetType)
+  return sourceType == targetType
 }
 
 export const createLinkFromConnection = (id: number, connection: Connection) => {

@@ -82,9 +82,8 @@ class Workflow(BaseModel):
 
 class TaskPort(BaseModel):
     name: str
-    link_node: int = -1
+    link_task: int = -1
     link_port: int = -1
-    link_adapt: int = 0 # 0: no adapt, 1: explode, -1: shrink
     value: Any
 
 class PreTask(BaseModel):
@@ -426,7 +425,7 @@ def _adapt_workflow(execution_id: str, workflow: Workflow):
             target_port = target_task.properties[target_pid]
         else:
             target_port = target_task.inputs[target_pid]
-        target_port.link_node = source_id
+        target_port.link_task = source_id
         target_port.link_port = source_pid
         target_type = _getPortType(
             workflow=workflow,

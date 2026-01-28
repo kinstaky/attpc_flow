@@ -9,17 +9,15 @@ import copy
 import zmq
 from tqdm import tqdm
 
-class PreTaskStatus(Enum):
-	WAITING = 0
-	READY = 1
-	SUBMITTED = 2
-	EXPLODED = 3
 
 class TaskStatus(Enum):
-	QUEUED = 0
-	RUNNING = 1
-	COMPLETED = 2
-	FAILED = 3
+	DISCARDED = -2
+	FAILED = -1
+	COMPLETED = 0
+	WAITING = 1
+	READY = 2
+	QUEUED = 3
+	RUNNING = 4
 
 class PortStatus(Enum):
 	ORIGIN = 0
@@ -116,9 +114,7 @@ class Processor:
 	def __init__(self, threads, environment, tasks):
 		self.threads = threads
 		self.environment = environment
-		self.pre_tasks = tasks
-		self.tasks = []
-		self.task_id = 0
+		self._init_tasks()
 		self.futures_to_task = {}
 
 	def process(self):
@@ -150,8 +146,8 @@ class Processor:
 						task["status"] = TaskStatus.FAILED
 						logging.error(f"Task {task["id"]} failed: {e}")
 					# submit new tasks
-					self.__reduce_waiting(task["id"])
-					self.__submit_ready_tasks(executor)
+					self._reduce_waiting(task["id"])
+					self._submit_ready_tasks(executor)
 		send_terminal_message()
 		for task in self.tasks:
 			if task["status"] == TaskStatus.COMPLETED:
@@ -159,113 +155,76 @@ class Processor:
 			elif task["status"] == TaskStatus.FAILED:
 				print(f"Task {task["id"]} failed.")
 
-	def _init_pre_tasks(self):
-		for ptask in self.pre_tasks:
-			if len(ptask["waiting"]) > 0:
-				ptask["status"] = PreTaskStatus.WAITING
-			else:
-				ptask["status"] = PreTaskStatus.READY
-			ptask["waiting_task"] = []
-			for port in ptask["inputs"] + ptask["properties"]:
-				if port["link_node"] == -1:
-					port["status"] = PortStatus.SOLVED
+	def _init_tasks(self):
+		offset = 0
+		for run in self.environment["run_list"]:
+			for task in self.tasks:
+				copy_task = task.copy()
+				copy_task["id"] += offset
+				copy_task["environment"] = self.environment
+				copy_task["environment"]["run"] = run
+				copy_task["ports"] = []
+				copy_task["inputs"] = {}
+				copy_task["properties"] = {}
+				for port in copy_task["inputs"]:
+					port["port"] = "inputs"
+					if port["link_task"] != -1:
+						port["link_task"] += offset
+					else:
+						port["inputs"][port["name"]] = port["value"]
+					copy_task["ports"].append(port)
+				for port in copy_task["properties"]:
+					port["port"] = "properties"
+					if port["link_task"] != -1:
+						port["link_task"] += offset
+					else:
+						port["inputs"][port["name"]] = port["value"]
+					copy_task["ports"].append(port)
+				copy_task["waiting"] = []
+				for id in task["waiting"]:
+					copy_task["waiting"].append(id + offset)
+				if len(copy_task["waiting"]) == 0:
+					copy_task["status"] = TaskStatus.READY
 				else:
-					port["status"] = PortStatus.ORIGIN
-
+					copy_task["status"] = TaskStatus.WAITING
+				self.tasks.append(copy_task)
+			offset += len(self.tasks)
 
 	def _submit_ready_tasks(self, executor):
-		for ptask in self.pre_tasks:
-			if ptask["status"] != PreTaskStatus.READY:
+		for task in self.tasks:
+			if task["status"] != TaskStatus.READY:
 				continue
-			task = {
-				"id": self.task_id,
-				"name": ptask["name"],
-				"environment": self.environment,
-				"inputs": ptask["inputs"],
-				"properties": ptask["properties"],
-				"status": TaskStatus.QUEUED,
-			}
-			self.task_id += 1
-			self.tasks.append(task)
 			future = executor.submit(run_node, task)
 			self.futures_to_task[future] = task
-			self._update_links(ptask["id"], task["id"])
-
-	def _update_links(self, src_ptask_id, task_id):
-		for ptask in self.pre_tasks:
-			if ptask["status"] != PreTaskStatus.WAITING:
-				continue
-			if src_ptask_id not in ptask["waiting"]:
-				continue
-			for port in ptask["inputs"] + ptask["properties"]:
-				if port["link_node"] != src_ptask_id:
-					continue
-				if port["status"] != PortStatus.ORIGIN:
-					continue
-				port["link_task"] = task_id
-				ptask["waiting"].remove(src_ptask_id)
-				ptask["waiting_task"].append(task_id)
-				port["status"] = PortStatus.UPDATED
 
 	def _reduce_waiting(self, task_id):
-		for task in self.pre_tasks:
+		for task in self.tasks:
 			if task["status"] != TaskStatus.WAITING:
-				continue
-			if task_id not in task["waiting_task"]:
-				continue
-			task["waiting_task"].remove(task_id)
-			if not self._solve_links(task_id):
-				continue
-			if len(task["waiting"]) == 0 and len(task["waiting_task"]) == 0:
-				task["status"] = TaskStatus.READY
-
-	def _solve_links(self, task_id):
-		outputs = self.tasks[task_id]["outputs"]
-		for task in self.pre_tasks:
-			if task["status"] != TaskStatus.WAITING:
-				continue
-			if task_id not in task["waiting_task"]:
-				continue
-			for idx, port in enumerate(task["inputs"] + task["properties"]):
-				if port["status"] != PortStatus.UPDATED:
-					continue
-				if port["link_task"] != task_id:
-					continue
-				if idx < len(task["inputs"]):
-					port_name = "inputs"
-					port_idx = idx
-				else:
-					port_name = "properties"
-					port_idx = idx - len(task["inputs"])
-				if port["link_adapt"] == 1:
-					self._explode_task(task["id"], port_name, port_idx, outputs[port["link_port"]])
-					task["status"] = PreTaskStatus.EXPLODED
-					return False
-				elif port["link_adapt"] == 0:
-					port["value"] = outputs[port["link_port"]]
-					port["status"] = PortStatus.SOLVED
-				else:
-					port["value"] = [outputs[port["link_port"]]]
-					port["status"] = PortStatus.SOLVED
-		return True
-
-	def _explode_task(self, task_id, port_name, port_idx, outputs):
-		pre_task = self.pre_tasks[task_id]
-		for output in outputs:
-			new_task = pre_task.copy()
-			new_task["id"] = len(self.pre_tasks)
-			new_task[port_name][port_idx]["value"] = output
-			new_task[port_name][port_idx]["status"] = PortStatus.SOLVED
-			self.pre_tasks.append(new_task)
-		for task in self.pre_tasks:
-			if task["status"] != PreTaskStatus.WAITING:
 				continue
 			if task_id not in task["waiting"]:
 				continue
-			
-			task["waiting"].remove(task["id"])
-			self._explode_task(task["id"])
+			task["waiting"].remove(task_id)
+			self._solve_links(task_id, task)
+			if len(task["waiting"]) == 0 and task["status"] == TaskStatus.WAITING:
+				task["status"] = TaskStatus.READY
 
+	def _solve_links(self, task_id, task):
+		outputs = self.tasks[task_id]["outputs"]
+		for port in task["ports"]:
+			if port["link_task"] != task_id:
+				continue
+			if outputs[port["link_port"]] is None:
+				task["status"] = TaskStatus.DISCARDED
+				self._chain_discard(task["id"])
+				break
+			else:
+				port[port["port"]][port["name"]] = outputs[port["link_port"]]
+
+	def _chain_discard(self, task_id):
+		for task in self.tasks:
+			if task["status"] == TaskStatus.WAITING and task_id in task["waiting"]:
+				task["status"] = TaskStatus.DISCARDED
+				self._chain_discard(task["id"])
 
 	@classmethod
 	def run(cls, threads, environment, tasks):

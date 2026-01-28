@@ -75,6 +75,8 @@ class Workflow(BaseModel):
     name: str
     workspace: Optional[str] = None
     workers: int = 2
+    run_list: List[int] = Field(alias="runList", default_factory=list)
+    run_numbers: str = Field(alias="runNumbers", default="")
     nodes: List[WorkflowNode] = Field(default_factory=list)
     links: List[WorkflowLink] = Field(default_factory=list)
     last_node: int = Field(alias="lastNode")
@@ -86,7 +88,7 @@ class TaskPort(BaseModel):
     link_port: int = -1
     value: Any
 
-class PreTask(BaseModel):
+class Task(BaseModel):
     id: int
     name: str
     inputs: List[TaskPort] = Field(default_factory=list)
@@ -98,7 +100,8 @@ class ExecuteWorkflow(BaseModel):
     workflow_name: str
     workspace: str
     threads: int
-    tasks: List[PreTask] = Field(default_factory=list)
+    run_list: List[int] = Field(default_factory=list)
+    tasks: List[Task] = Field(default_factory=list)
 
 class ExecutionStatus(BaseModel):
     execution_id: str
@@ -379,12 +382,13 @@ def _adapt_workflow(execution_id: str, workflow: Workflow):
         workflow_name=workflow.name,
         workspace=workflow.workspace,
         threads=workflow.workers,
+        run_list=workflow.run_list,
     )
     id_map = {}
     # loop nodes
     for idx, node in enumerate(workflow.nodes):
         id_map[node.id] = idx
-        task = PreTask(
+        task = Task(
             id=idx,
             name=node.name,
         )
@@ -410,12 +414,6 @@ def _adapt_workflow(execution_id: str, workflow: Workflow):
 
     # loop links
     for idx, link in enumerate(workflow.links):
-        source_type = _getPortType(
-            workflow=workflow,
-            node_id=link.source,
-            port_type="outputs",
-            port_name=link.sourceHandle
-        )
         source_id = id_map[link.source]
         source_pid = int(link.sourceHandle.split("-")[1])
         target_task = execution_workflow.tasks[id_map[link.target]]
@@ -427,16 +425,6 @@ def _adapt_workflow(execution_id: str, workflow: Workflow):
             target_port = target_task.inputs[target_pid]
         target_port.link_task = source_id
         target_port.link_port = source_pid
-        target_type = _getPortType(
-            workflow=workflow,
-            node_id=link.target,
-            port_type="properties",
-            port_name=link.targetHandle
-        )
-        if "[]" in source_type:
-            target_port.link_adapt += 1
-        if "[]" in target_type:
-            target_port.link_adapt -= 1
         target_task.waiting.append(source_id)
 
     return execution_workflow

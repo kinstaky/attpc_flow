@@ -26,4 +26,7 @@ class CheckGrawEventIdNode():
 			workspace_dir=workspace_dir,
 			run=run,
 		)
-		return [result]
+		if result:
+			return [run]
+		else:
+			return [None]

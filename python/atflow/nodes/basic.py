@@ -35,7 +35,7 @@ class ConstListIntParameters(BaseModel):
 )
 class ConstListIntNode():
 	def execute(self, value):
-		return value
+		return [value]
 
 
 
@@ -52,7 +52,7 @@ class LoadRunParameters(BaseModel):
 )
 class LoadRunNode():
 	def execute(self, run):
-		return run
+		return [run]
 
 
 
@@ -71,6 +71,6 @@ class LoadRunListParameters(BaseModel):
 class LoadRunListNode():
 	def execute(self, run_list, run):
 		if run == run_list[0]:
-			return run_list
+			return [run_list]
 		else:
-			return None
+			return [None]

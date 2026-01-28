@@ -20,6 +20,11 @@ import {
   copyWorkflow,
 } from '../stores/workflow'
 import {
+  formatRunNumbers,
+  parseRunNumbers,
+  validateRunNumbers,
+} from '../utils/runNumbers'
+import {
   createWorkflow,
   updateWorkflow as updateWorkflowService,
   deleteWorkflow,
@@ -421,6 +426,32 @@ const runWorkflow = async () => {
   }
 }
 
+// Run number selector state
+const showRunNumberSheet = ref(false)
+const runNumbers = ref('')
+const selectedTags = ref<string[]>([])
+const runNumberRules = [
+  (value: string) => {
+    const result = validateRunNumbers(value)
+    return result === true ? true : result
+  }
+]
+
+const handleRunNumberSelection = () => {
+  // Parse run numbers and update active workflow
+  const parsedRuns = parseRunNumbers(runNumbers.value)
+
+  // Update active workflow with both formats
+  if (activeWorkflow.value) {
+    activeWorkflow.value.runList = parsedRuns
+    activeWorkflow.value.runNumbers = formatRunNumbers(parsedRuns)
+    console.log('Updated workflow runList:', parsedRuns)
+    console.log('Updated workflow runNumbers:', activeWorkflow.value.runNumbers)
+  }
+
+  showRunNumberSheet.value = false
+}
+
 // Watch for workspace changes from store
 watch(activeWorkspace, (newWorkspace) => {
   workspaceName.value = newWorkspace
@@ -430,6 +461,16 @@ watch(activeWorkspace, (newWorkspace) => {
 watch(activeWorkers, (newWorkers) => {
   workersCount.value = newWorkers
 })
+
+// Watch for workflow changes to sync runNumbers
+watch(activeWorkflow, (newWorkflow) => {
+  if (newWorkflow && newWorkflow.runList) {
+    // Update local runNumbers from workflow runList
+    runNumbers.value = formatRunNumbers(newWorkflow.runList)
+  }
+}, { immediate: true })
+
+
 
 </script>
 
@@ -552,11 +593,92 @@ watch(activeWorkers, (newWorkers) => {
       ></v-text-field>
     </div>
 
-    <!-- Right side button -->
+    <!-- Right side buttons -->
     <div class="floating-right">
+      <!-- Run Number Selector Menu -->
+      <v-menu
+        v-model="showRunNumberSheet"
+        :close-on-content-click="false"
+        location="bottom end"
+        :offset="[10, 8]"
+      >
+        <template v-slot:activator="{ props }">
+          <v-btn variant="outlined" v-bind="props">
+            <v-icon start>mdi-format-list-numbered</v-icon>
+            Run
+          </v-btn>
+        </template>
+
+        <v-card class="run-sheet">
+          <v-card-title class="d-flex align-center pa-4">
+            <span>Select Run Numbers</span>
+            <v-spacer></v-spacer>
+            <v-btn icon variant="text" @click="showRunNumberSheet = false">
+              <v-icon>mdi-close</v-icon>
+            </v-btn>
+          </v-card-title>
+
+          <v-card-text class="pa-4">
+            <!-- Run Numbers Input -->
+            <div class="mb-4">
+              <v-text-field
+                v-model="runNumbers"
+                label="Run Numbers"
+                variant="outlined"
+                density="compact"
+                hint="Enter individual numbers separated by commas, or ranges (e.g., 1-5, 8, 10-15)"
+                persistent-hint
+                :rules="runNumberRules"
+              ></v-text-field>
+            </div>
+
+            <!-- Tag Selection Area -->
+            <div class="mb-4">
+              <div class="text-subtitle-2 mb-2">Select Tags</div>
+              <div class="tag-selection">
+                <!-- Placeholder for tag chips - no tags available yet -->
+                <v-chip
+                  v-for="tag in selectedTags"
+                  :key="tag"
+                  closable
+                  @click:close="selectedTags = selectedTags.filter(t => t !== tag)"
+                  class="ma-1"
+                >
+                  {{ tag }}
+                </v-chip>
+                <div v-if="selectedTags.length === 0" class="text-grey text-body-2">
+                  No tags available yet
+                </div>
+              </div>
+            </div>
+
+            <!-- Scrollable Table Area -->
+            <div class="table-container">
+              <div class="text-subtitle-2 mb-2">Run Data</div>
+              <v-card variant="outlined" class="table-card">
+                <div class="table-placeholder text-center pa-8 text-grey">
+                  <v-icon size="48" class="mb-2">mdi-table</v-icon>
+                  <div>No data available yet</div>
+                  <div class="text-caption">Run data will appear here after selection</div>
+                </div>
+              </v-card>
+            </div>
+          </v-card-text>
+
+          <v-card-actions class="pa-4">
+            <v-spacer></v-spacer>
+            <v-btn @click="showRunNumberSheet = false">Cancel</v-btn>
+            <v-btn color="primary" @click="handleRunNumberSelection">
+              Apply Selection
+            </v-btn>
+          </v-card-actions>
+        </v-card>
+      </v-menu>
+
+      <!-- Run Button -->
       <v-btn variant="flat" color="primary" @click="runWorkflow">
         <v-icon start>mdi-play</v-icon>
-        Run
+        Start
       </v-btn>
     </div>
 
@@ -701,6 +823,51 @@ watch(activeWorkers, (newWorkers) => {
 
   .floating-right {
     order: 1;
+  }
+}
+
+/* Run Sheet Styles */
+.run-sheet {
+  max-height: 80vh;
+  width: 80vw;
+  overflow-y: auto;
+}
+
+.tag-selection {
+  min-height: 60px;
+  border: 1px dashed rgba(var(--v-theme-on-surface), 0.2);
+  border-radius: 4px;
+  padding: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.table-container {
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.table-card {
+  min-height: 150px;
+}
+
+.table-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 150px;
+}
+
+/* Responsive adjustments for the menu */
+@media (max-width: 768px) {
+  .run-sheet {
+    max-height: 80vh;
+  }
+
+  .table-container {
+    max-height: 60vh;
   }
 }
 </style>

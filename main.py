@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).parent / "python"))
 
 from atflow import Processor
 import atflow.nodes
-from server import app, executions, ExecutionStatus, init_workflow_queue
+from server import app, executions, init_workflow_queue
 from datetime import datetime, timezone
 
 # Configure logging
@@ -49,23 +49,17 @@ def workflow_worker(queue: Queue):
 					executions[execution_id].started_at = datetime.now(timezone.utc+8).isoformat()
 					executions[execution_id].status = "running"
 
-				# TODO: implement translate workflow to tasks
-				print(workflow_data.model_dump_json(indent=2))
+				logger.info(workflow_data.model_dump_json(indent=2))
 
-				# # Convert workflow dict to tasks format for Processor
-				# tasks, max_workers, environment = translate_workflow(workflow_dict)
-
-				# # TODO: implement the workflow processing
-				# print(f"Max workers: {max_workers}")
-				# print(f"Environment: {environment}")
-				# print(tasks)
-
-				# # Use existing Processor class (it handles its own multiprocessing)
-				# processor = Processor(
-				# 	max_workers=max_workers,
-				# 	environment=environment
-				# )
-				# processor.process(tasks)
+				# Use existing Processor class (it handles its own multiprocessing)
+				Processor.run(
+					threads=workflow_data.threads,
+					environment={
+						"workspace": workflow_data.workspace,
+						"run_list": workflow_data.run_list,
+					},
+					tasks=workflow_data.tasks
+				)
 
 				# Update status to completed
 				if execution_id in executions:
@@ -83,46 +77,6 @@ def workflow_worker(queue: Queue):
 		logger.info("Worker interrupted")
 	finally:
 		logger.info("Worker shutting down")
-
-# def translate_workflow(workflow: dict):
-# 	"""Convert Workflow model to tasks format expected by Processor."""
-# 	tasks = []
-
-# 	for node in workflow["nodes"]:
-# 		task = {
-# 			"id": None,
-# 			"node_id": node["id"],
-# 			"name": node["name"],
-# 			"inputs": {},
-# 			"properties": 
-# 		}
-
-
-
-# def translate_workflow_to_tasks(workflow_dict: dict) -> list:
-# 	"""Convert Workflow model to tasks format expected by Processor."""
-# 	tasks = []
-
-# 	# Convert nodes to tasks
-# 	for node in workflow_dict['nodes']:
-# 		task = {
-# 			'id': node['id'],
-# 			'name': node['name'],
-# 			'inputs': {},  # Will be populated from links
-# 			'properties': {prop['key']: prop['value'] for prop in node.get('properties', [])},
-# 			'waiting': 0,
-# 			'status': None
-# 		}
-# 		tasks.append(task)
-
-# 	# Process links to set up inputs and waiting counts
-# 	for link in workflow_dict['links']:
-# 		target_task = next((t for t in tasks if t['id'] == link['target']), None)
-# 		if target_task:
-# 			target_task['inputs'][link['targetHandle']] = [link['source'], link['sourceHandle']]
-# 			target_task['waiting'] += 1
-
-# 	return tasks
 
 def run_server():
 	"""Run the FastAPI server."""

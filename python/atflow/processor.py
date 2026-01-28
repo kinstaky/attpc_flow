@@ -1,16 +1,16 @@
 from .node_registry import NodeRegistry
 
 import concurrent.futures
-from enum import Enum
+from enum import IntEnum
 import logging
 import threading
-import copy
+import json
 
 import zmq
 from tqdm import tqdm
 
 
-class TaskStatus(Enum):
+class TaskStatus(IntEnum):
 	DISCARDED = -2
 	FAILED = -1
 	COMPLETED = 0
@@ -19,16 +19,11 @@ class TaskStatus(Enum):
 	QUEUED = 3
 	RUNNING = 4
 
-class PortStatus(Enum):
-	ORIGIN = 0
-	UPDATED = 1
-	SOLVED = 2
-
 def run_node(task):
 	task["status"] = TaskStatus.RUNNING
 	return NodeRegistry.dispatch(
 		name=task["name"],
-		id=task["id"],
+		task_id=task["id"],
 		environment=task["environment"],
 		inputs=task["inputs"],
 		properties=task["properties"]
@@ -114,7 +109,7 @@ class Processor:
 	def __init__(self, threads, environment, tasks):
 		self.threads = threads
 		self.environment = environment
-		self._init_tasks()
+		self._init_tasks(tasks)
 		self.futures_to_task = {}
 
 	def process(self):
@@ -122,7 +117,6 @@ class Processor:
 		collector_thread = threading.Thread(target=zmq_collector, args=(self.threads,), daemon=True)
 		collector_thread.start()
 
-		self._init_pre_tasks()
 		with concurrent.futures.ProcessPoolExecutor(max_workers=self.threads) as executor:
 			# submit initial ready tasks
 			self._submit_ready_tasks(executor)
@@ -140,7 +134,7 @@ class Processor:
 						# success
 						result = future.result()
 						task["status"] = TaskStatus.COMPLETED
-						task["output"] = result
+						task["outputs"] = result
 					except Exception as e:
 						# failed
 						task["status"] = TaskStatus.FAILED
@@ -151,49 +145,63 @@ class Processor:
 		send_terminal_message()
 		for task in self.tasks:
 			if task["status"] == TaskStatus.COMPLETED:
-				print(f"Task {task["id"]} completed with result: {task["output"]}")
+				print(f"Task {task["id"]} completed with result: {task["outputs"]}")
 			elif task["status"] == TaskStatus.FAILED:
 				print(f"Task {task["id"]} failed.")
 
-	def _init_tasks(self):
+	def _init_tasks(self, pre_tasks):
 		offset = 0
+		self.tasks = []
 		for run in self.environment["run_list"]:
-			for task in self.tasks:
-				copy_task = task.copy()
-				copy_task["id"] += offset
-				copy_task["environment"] = self.environment
-				copy_task["environment"]["run"] = run
-				copy_task["ports"] = []
-				copy_task["inputs"] = {}
-				copy_task["properties"] = {}
-				for port in copy_task["inputs"]:
-					port["port"] = "inputs"
-					if port["link_task"] != -1:
-						port["link_task"] += offset
+			for ptask in pre_tasks:
+				task = {
+					"id": ptask.id + offset,
+					"name": ptask.name,
+					"environment": {
+						"run": run,
+						"workspace_dir": self.environment["workspace"],
+						**self.environment
+					},
+					"ports": [],
+					"inputs": {},
+					"properties": {},
+					"waiting": [],
+					"status": TaskStatus.WAITING
+				}
+				for port in ptask.inputs:
+					if port.link_task == -1:
+						task["inputs"][port.name] = port.value
 					else:
-						port["inputs"][port["name"]] = port["value"]
-					copy_task["ports"].append(port)
-				for port in copy_task["properties"]:
-					port["port"] = "properties"
-					if port["link_task"] != -1:
-						port["link_task"] += offset
+						task["ports"].append({
+							"port": "inputs",
+							"name": port.name,
+							"link_task": port.link_task + offset,
+							"link_port": port.link_port,
+							"value": None
+						})
+				for port in ptask.properties:
+					if port.link_task == -1:
+						task["properties"][port.name] = port.value
 					else:
-						port["inputs"][port["name"]] = port["value"]
-					copy_task["ports"].append(port)
-				copy_task["waiting"] = []
-				for id in task["waiting"]:
-					copy_task["waiting"].append(id + offset)
-				if len(copy_task["waiting"]) == 0:
-					copy_task["status"] = TaskStatus.READY
-				else:
-					copy_task["status"] = TaskStatus.WAITING
-				self.tasks.append(copy_task)
-			offset += len(self.tasks)
+						task["ports"].append({
+							"port": "properties",
+							"name": port.name,
+							"link_task": port.link_task + offset,
+							"link_port": port.link_port,
+							"value": None
+						})
+				for id in ptask.waiting:
+					task["waiting"].append(id + offset)
+				if len(task["waiting"]) == 0:
+					task["status"] = TaskStatus.READY
+				self.tasks.append(task)
+			offset += len(pre_tasks)
 
 	def _submit_ready_tasks(self, executor):
 		for task in self.tasks:
 			if task["status"] != TaskStatus.READY:
 				continue
+			task["status"] = TaskStatus.QUEUED
 			future = executor.submit(run_node, task)
 			self.futures_to_task[future] = task
 
@@ -218,7 +226,7 @@ class Processor:
 				self._chain_discard(task["id"])
 				break
 			else:
-				port[port["port"]][port["name"]] = outputs[port["link_port"]]
+				task[port["port"]][port["name"]] = outputs[port["link_port"]]
 
 	def _chain_discard(self, task_id):
 		for task in self.tasks:

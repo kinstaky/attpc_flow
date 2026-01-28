@@ -6,6 +6,8 @@ export interface Workflow {
   name: string | null
   workspace: string | null
   workers: number
+  runList: number[]
+  runNumbers: string
   nodes: NodeData[]
   links: Link[]
   lastNode: number
@@ -17,6 +19,8 @@ export function defaultWorkflow(workspace?: string | null) {
     name: null,
     workspace: workspace || null,
     workers: 2,
+    runList: [],
+    runNumbers: '',
     nodes: [],
     links: [],
     lastNode: 0,

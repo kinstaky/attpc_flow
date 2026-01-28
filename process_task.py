@@ -6,46 +6,6 @@ import logging
 from atflow import Processor
 import atflow.nodes
 
-# config = {
-# 	"version": 0.1,
-# 	"workspace_dir": "/data/rcnp2025/attpc_flow",
-# 	"last_node_id": 2,
-# 	"last_link_id": 1,
-# 	"nodes": [
-# 		{
-# 			"id": 0,
-# 			"type": "set_run",
-# 			"config": {
-# 				"run": [1055, 1056, 1057],
-# 			},
-# 			"inputs": [],
-# 			"outputs": [
-# 				{
-# 					"type": "ARRAY[INT]",
-# 					"link": 0,
-# 				}
-# 			],
-# 		},
-# 		{
-# 			"id": 1,
-# 			"type": "check_graw",
-# 			"config": {
-# 				"graw_dir": "/data/rcnp2025/graw",
-# 			},
-# 			"inputs": [
-# 				{
-# 					"type": "INT",
-# 					"link": 0,
-# 				}
-# 			],
-# 			"outputs": []
-# 		},
-# 	],
-# 	"links": [
-# 		[0, 0, 0, 1, 0, "INT"]
-# 	]
-# }
-
 logging.basicConfig(level=logging.DEBUG)
 
 def main():
@@ -75,7 +35,9 @@ def main():
 
 	# Extract parameters (with defaults or error checking)
 	max_workers = config_data.get("threads", 1)
-	environment = config_data.get("environment", {})
+	environment = {
+		**config_data.get("workspace", {}),
+	}
 	tasks = config_data.get("tasks", [])
 
 	if not tasks:

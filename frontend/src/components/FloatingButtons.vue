@@ -4,6 +4,7 @@ import {
   activeTabName,
   activeTabId,
   activeWorkspace,
+  activeWorkers,
   isTabAttached,
   getOtherTabNames,
   addNewTab,
@@ -24,6 +25,7 @@ import {
   deleteWorkflow,
   listWorkflows,
   workflowNameExists,
+  executeWorkflow,
 } from '../api/workflow'
 
 // Inject error handler from parent
@@ -39,6 +41,9 @@ const currentWorkflow = ref(activeTabName.value || '')
 const workspaceName = ref(activeWorkspace.value)
 const isEditingWorkspace = ref(false)
 const workspaceInput = ref<HTMLInputElement>()
+const workersCount = ref(activeWorkers.value)
+const isEditingWorkers = ref(false)
+const workersInput = ref<HTMLInputElement>()
 const renameError = ref('')
 const existingWorkflows = ref<string[]>([])
 const otherTabNames = ref<string[]>([])
@@ -358,18 +363,72 @@ const startEditWorkspace = () => {
 
 const finishEditWorkspace = () => {
   isEditingWorkspace.value = false
-  // Update workspace by updating the active workflow
-  setActiveWorkflow(copyWorkflow(activeWorkflow.value as Workflow))
-  console.log('Workspace path updated to:', workspaceName.value)
+  if (activeWorkflow.value) {
+    activeWorkflow.value.workspace = workspaceName.value
+  }
+  console.log('Workspace path updated to:', activeWorkspace.value)
 }
 
 const cancelEditWorkspace = () => {
   isEditingWorkspace.value = false
 }
 
+const startEditWorkers = () => {
+  isEditingWorkers.value = true
+  nextTick(() => {
+    workersInput.value?.focus()
+    workersInput.value?.select()
+  })
+}
+
+const finishEditWorkers = () => {
+  isEditingWorkers.value = false
+  // Update workers count in the active workflow
+  if (activeWorkflow.value) {
+    activeWorkflow.value.workers = workersCount.value ?? 2
+  }
+  console.log('Workers count updated to:', workersCount.value ?? 2)
+}
+
+const cancelEditWorkers = () => {
+  isEditingWorkers.value = false
+}
+
+const runWorkflow = async () => {
+  try {
+    // Step 1: Save the workflow (saveWorkflow handles all validation)
+    await saveWorkflow()
+
+    // Step2: Check if workspace and max_workers are set
+    if (!workspaceName.value || !workersCount.value) {
+      showError('Please set workspace and max_workers before running the workflow')
+      return
+    }
+
+    // Step 2: Execute the workflow
+    const finalWorkflowName = activeTabName.value
+    if (!finalWorkflowName) {
+      showError('Failed to save workflow before execution')
+      return
+    }
+
+    console.log(`Executing workflow: ${finalWorkflowName}`)
+    const executionStatus = await executeWorkflow(finalWorkflowName)
+    console.log('Workflow execution started:', executionStatus)
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Failed to save or execute workflow'
+    showError(errorMessage)
+  }
+}
+
 // Watch for workspace changes from store
 watch(activeWorkspace, (newWorkspace) => {
   workspaceName.value = newWorkspace
+})
+
+// Watch for workers changes from store
+watch(activeWorkers, (newWorkers) => {
+  workersCount.value = newWorkers
 })
 
 </script>
@@ -447,7 +506,7 @@ watch(activeWorkspace, (newWorkspace) => {
           class="workspace-btn"
           :class="{ 'workspace-null': !workspaceName }"
         >
-          <v-icon start size="small">mdi-folder-outline</v-icon>
+          <v-icon start size="small" style="opacity: 0.7">mdi-folder-outline</v-icon>
           <span class="workspace-label">{{ workspaceName || 'No workspace' }}</span>
         </v-btn>
       </div>
@@ -463,11 +522,39 @@ watch(activeWorkspace, (newWorkspace) => {
         @keyup.escape="cancelEditWorkspace"
         @blur="finishEditWorkspace"
       ></v-text-field>
+
+      <!-- Workers button or input -->
+      <div v-if="!isEditingWorkers" class="d-flex align-center">
+        <v-btn
+          variant="outlined"
+          @click="startEditWorkers"
+          class="workers-btn"
+        >
+          <v-icon start size="small" style="opacity: 0.7">mdi-account-group-outline</v-icon>
+          <span class="workers-number">{{ activeWorkers }}</span>
+          <span class="workers-label">cores</span>
+        </v-btn>
+      </div>
+      <v-text-field
+        v-else
+        ref="workersInput"
+        v-model.number="workersCount"
+        variant="outlined"
+        density="compact"
+        type="number"
+        min="1"
+        max="16"
+        placeholder="Number of workers..."
+        style="width: 150px;"
+        @keyup.enter="finishEditWorkers"
+        @keyup.escape="cancelEditWorkers"
+        @blur="finishEditWorkers"
+      ></v-text-field>
     </div>
 
     <!-- Right side button -->
     <div class="floating-right">
-      <v-btn variant="flat" color="primary" @click="console.log('Run workflow')">
+      <v-btn variant="flat" color="primary" @click="runWorkflow">
         <v-icon start>mdi-play</v-icon>
         Run
       </v-btn>
@@ -568,6 +655,22 @@ watch(activeWorkspace, (newWorkspace) => {
 
 .workspace-btn.workspace-null .workspace-label {
   color: rgba(var(--v-theme-on-surface), 0.5);
+}
+
+/* Workers button styles */
+.workers-btn {
+  text-transform: none !important;
+}
+
+.workers-btn .workers-number {
+  text-transform: none;
+  font-weight: 600;
+}
+
+.workers-btn .workers-label {
+  text-transform: none;
+  opacity: 0.7;
+  margin-left: 6px;
 }
 
 /* Responsive adjustments */

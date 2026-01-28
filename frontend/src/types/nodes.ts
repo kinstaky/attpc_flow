@@ -18,7 +18,7 @@ export interface NodePort {
 export interface NodeProperty {
 	name: string,
 	type: InterfaceType,
-	value: any,
+	value: string,
 	linked: boolean,
 }
 

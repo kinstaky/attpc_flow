@@ -23,6 +23,7 @@ export const updateWorkflow = async (): Promise<void> => {
   if (!activeWorkflow.value) {
     throw new Error('No active workflow to update')
   }
+  console.log(activeWorkflow.value)
   const response = await fetch(
     `${API_BASE}/workflows/${encodeURIComponent(activeWorkflow.value.name!)}`,
     {
@@ -75,4 +76,20 @@ export const getWorkflow = async (workflowName: string) => {
 export const workflowNameExists = async (name: string): Promise<boolean> => {
   const existingWorkflows = await listWorkflows()
   return existingWorkflows.indexOf(name) !== -1
+}
+
+// Execute workflow via POST API
+export const executeWorkflow = async (workflowName: string) => {
+  const response = await fetch(`${API_BASE}/executions/${encodeURIComponent(workflowName)}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    }
+  })
+
+  if (!response.ok) {
+    throw new Error(`Failed to execute workflow: ${response.statusText}`)
+  }
+
+  return await response.json()
 }

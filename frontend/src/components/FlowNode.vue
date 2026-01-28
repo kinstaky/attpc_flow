@@ -130,6 +130,7 @@ const isPropertySelf = (nodeId: number, portIndex: number) => {
         </v-col>
         <v-col cols="5" v-else class="pa-1"></v-col>
       </v-row>
+      <!-- Properties (Full line) -->
       <v-row
         v-for="(property, index) in nodeData.properties"
         :key="`property-${index}`"
@@ -158,7 +159,7 @@ const isPropertySelf = (nodeId: number, portIndex: number) => {
         </v-col>
         <v-col cols="10" class="pa-1">
           <v-text-field
-            :model-value="String(property.value || '')"
+            v-model="property.value"
             variant="outlined"
             density="compact"
             hide-details

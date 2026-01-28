@@ -41,6 +41,7 @@ export const activeTab = computed(() => tabState.tabs.find(t => t.id === tabStat
 export const activeTabName = computed(() => activeTab.value?.workflow.name || null)
 export const activeWorkflow = computed(() => activeTab.value?.workflow || null)
 export const activeWorkspace = computed(() => activeTab.value?.workflow.workspace || null)
+export const activeWorkers = computed(() => activeTab.value?.workflow.workers || null)
 
 // Tab management functions
 export const setActiveTab = (tabId: string) => {

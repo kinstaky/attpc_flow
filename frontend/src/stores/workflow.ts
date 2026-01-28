@@ -5,6 +5,7 @@ import { type Link } from '../types/link'
 export interface Workflow {
   name: string | null
   workspace: string | null
+  workers: number
   nodes: NodeData[]
   links: Link[]
   lastNode: number
@@ -15,6 +16,7 @@ export function defaultWorkflow(workspace?: string | null) {
   return {
     name: null,
     workspace: workspace || null,
+    workers: 2,
     nodes: [],
     links: [],
     lastNode: 0,

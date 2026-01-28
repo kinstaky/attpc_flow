@@ -9,9 +9,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field, ConfigDict
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Literal
 import json
 from pathlib import Path
+import multiprocessing as mp
+from multiprocessing import Queue
 
 from atflow.node_registry import NodeRegistry
 from atflow.nodes import *  # Import all nodes to register them
@@ -70,33 +72,56 @@ class WorkflowLink(BaseModel):
     targetHandle: str
 
 class Workflow(BaseModel):
-    # model_config = ConfigDict(alias_generator=to_lower_camel)
     name: str
     workspace: Optional[str] = None
+    workers: int = 2
     nodes: List[WorkflowNode] = Field(default_factory=list)
     links: List[WorkflowLink] = Field(default_factory=list)
     last_node: int = Field(alias="lastNode")
     last_link: int = Field(alias="lastLink")
 
-# class WorkflowExecution(BaseModel):
-#     workflow_id: str
-#     environment: Dict[str, Any] = {}
+class TaskPort(BaseModel):
+    name: str
+    link_node: int = -1
+    link_port: int = -1
+    link_adapt: int = 0 # 0: no adapt, 1: explode, -1: shrink
+    value: Any
 
-# class ExecutionStatus(BaseModel):
-#     execution_id: str
-#     workflow_id: str
-#     status: str  # pending, running, completed, failed
-#     message: Optional[str] = ""
-#     started_at: Optional[str] = None
-#     completed_at: Optional[str] = None
-#     results: Optional[Dict[str, Any]] = None
+class PreTask(BaseModel):
+    id: int
+    name: str
+    inputs: List[TaskPort] = Field(default_factory=list)
+    properties: List[TaskPort] = Field(default_factory=list)
+    waiting: List[int] = Field(default_factory=list)
+
+class ExecuteWorkflow(BaseModel):
+    execution_id: str
+    workflow_name: str
+    workspace: str
+    threads: int
+    tasks: List[PreTask] = Field(default_factory=list)
+
+class ExecutionStatus(BaseModel):
+    execution_id: str
+    workflow_id: str
+    status: Literal["waiting", "running", "completed", "failed"]
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
 
 # Storage
 WORKFLOWS_DIR = Path("workflows")
 WORKFLOWS_DIR.mkdir(exist_ok=True)
 
 # In-memory execution tracking (for demo purposes)
-# executions: Dict[str, ExecutionStatus] = {}
+executions: Dict[str, ExecutionStatus] = {}
+
+# Global workflow queue for multiprocessing
+workflow_queue: Optional[Queue] = None
+
+def init_workflow_queue(queue: Queue):
+    """Initialize the global workflow queue."""
+    global workflow_queue
+    workflow_queue = queue
 
 # Helper functions
 def translate_type(python_type: str) -> str:
@@ -299,48 +324,172 @@ async def delete_workflow(workflow_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to delete workflow: {str(e)}")
 
-# @app.post("/workflows/{workflow_id}/execute", response_model=ExecutionStatus)
-# async def execute_workflow(workflow_id: str, execution: Optional[WorkflowExecution] = None):
-#     """Execute a workflow."""
-#     try:
-#         # Load workflow
-#         file_path = WORKFLOWS_DIR / f"{workflow_id}.json"
-#         if not file_path.exists():
-#             raise HTTPException(status_code=404, detail=f"Workflow '{workflow_id}' not found")
 
-#         with open(file_path, 'r') as f:
-#             workflow_data = json.load(f)
-#             workflow = Workflow(**workflow_data)
+def _getPortType(
+    workflow: Workflow,
+    node_id: int,
+    port_type: str,
+    port_name: str
+) -> Optional[str]:
+    for node in workflow.nodes:
+        node = node.model_dump()
+        if node["id"] != node_id:
+            continue
+        port_id = int(port_name.split("-")[1])
+        return node[port_type][port_id]["type"]
+    return None
 
-#         # Generate execution ID
-#         import uuid
-#         execution_id = str(uuid.uuid4())
+def _parse_property_value(prop: Dict[str, str]):
+    # parse property value
+    result = None
+    if ("[]" in prop["type"]):
+        result = []
+        value = prop["value"].split(",")
+        if (prop["type"] == "int[]"):
+            for v in value:
+                if "-" in v:
+                    start = int(v.split("-")[0])
+                    end = int(v.split("-")[1])
+                    for i in range(start, end+1):
+                        result.append(i)
+                else:
+                    result.append(int(v))
+        elif (prop["type"] == "float[]"):
+            result = [float(v) for v in value]
+        elif (prop["type"] == "bool[]"):
+            result = [bool(v) for v in value]
+        elif (prop["type"] == "str[]"):
+            result = value
+    else:
+        match prop["type"]:
+            case "int":
+                result = int(prop["value"])
+            case "float":
+                result = float(prop["value"])
+            case "bool":
+                result = bool(prop["value"])
+            case "str":
+                result = prop["value"]
+    return result
 
-#         # Create execution status
-#         from datetime import datetime, timezone
-#         status = ExecutionStatus(
-#             execution_id=execution_id,
-#             workflow_id=workflow_id,
-#             status="pending",
-#             message="Workflow execution queued",
-#             started_at=datetime.now(timezone.utc).isoformat()
-#         )
+"""Help function to adapt workflow to execution task."""
+def _adapt_workflow(execution_id: str, workflow: Workflow):
+    """Adapt workflow to execution task."""
+    execution_workflow = ExecuteWorkflow(
+        execution_id=execution_id,
+        workflow_name=workflow.name,
+        workspace=workflow.workspace,
+        threads=workflow.workers,
+    )
+    id_map = {}
+    # loop nodes
+    for idx, node in enumerate(workflow.nodes):
+        id_map[node.id] = idx
+        task = PreTask(
+            id=idx,
+            name=node.name,
+        )
+        for inp in node.inputs:
+            exec_input = TaskPort(
+                name=inp["name"],
+                value=None,
+            )
+            task.inputs.append(exec_input)
+        for prop in node.properties:
+            exec_prop = TaskPort(
+                name=prop["name"],
+                value=None,
+            )
+            # parse property value
+            try:
+                value = _parse_property_value(prop)
+            except Exception:
+                value = None
+            exec_prop.value = value
+            task.properties.append(exec_prop)
+        execution_workflow.tasks.append(task)
 
-#         # Store execution status
-#         executions[execution_id] = status
+    # loop links
+    for idx, link in enumerate(workflow.links):
+        source_type = _getPortType(
+            workflow=workflow,
+            node_id=link.source,
+            port_type="outputs",
+            port_name=link.sourceHandle
+        )
+        source_id = id_map[link.source]
+        source_pid = int(link.sourceHandle.split("-")[1])
+        target_task = execution_workflow.tasks[id_map[link.target]]
+        target_pid = int(link.targetHandle.split("-")[1])
 
-#         # TODO: Convert workflow to Processor format and execute
-#         # For now, simulate execution
-#         status.status = "completed"
-#         status.message = "Workflow completed successfully (demo mode)"
-#         status.completed_at = datetime.now(timezone.utc).isoformat()
-#         status.results = {"message": "Demo execution completed"}
+        if link.targetHandle.startswith("property-"):
+            target_port = target_task.properties[target_pid]
+        else:
+            target_port = target_task.inputs[target_pid]
+        target_port.link_node = source_id
+        target_port.link_port = source_pid
+        target_type = _getPortType(
+            workflow=workflow,
+            node_id=link.target,
+            port_type="properties",
+            port_name=link.targetHandle
+        )
+        if "[]" in source_type:
+            target_port.link_adapt += 1
+        if "[]" in target_type:
+            target_port.link_adapt -= 1
+        target_task.waiting.append(source_id)
 
-#         return status
-#     except HTTPException:
-#         raise
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=f"Failed to execute workflow: {str(e)}")
+    return execution_workflow
+
+@app.post("/executions/{workflow_id}", response_model=ExecutionStatus)
+async def execute_workflow(workflow_id: str):
+    """Execute a workflow."""
+    try:
+        # Load workflow
+        file_path = WORKFLOWS_DIR / f"{workflow_id}.json"
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail=f"Workflow '{workflow_id}' not found")
+
+        with open(file_path, 'r') as f:
+            workflow_data = json.load(f)
+            workflow = Workflow.model_validate(workflow_data)
+
+        # Generate execution ID
+        import uuid
+        execution_id = str(uuid.uuid4())
+
+        # Create execution status
+        from datetime import datetime, timezone
+        status = ExecutionStatus(
+            execution_id=execution_id,
+            workflow_id=workflow_id,
+            status="waiting",
+        )
+
+        # Store execution status
+        executions[execution_id] = status
+
+        # Adapt workflow to execution format
+        adapted_workflow = _adapt_workflow(
+            execution_id=execution_id,
+            workflow=workflow
+        )
+
+        # Send validated workflow to message queue for workers
+        if workflow_queue:
+            workflow_queue.put(adapted_workflow)
+        else:
+            # Fallback: process directly if no queue available
+            status.status = "failed"
+            status.completed_at = datetime.now(timezone.utc).isoformat()
+            raise HTTPException(status_code=503, detail="Worker queue not available")
+
+        return status
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to execute workflow: {str(e)}")
 
 # @app.get("/executions/{execution_id}", response_model=ExecutionStatus)
 # async def get_execution_status(execution_id: str):
@@ -370,21 +519,6 @@ async def health_check():
     return {
         "status": "healthy",
         "nodes_registered": len(NodeRegistry._registry),
-        "workflows_saved": len(list(WORKFLOWS_DIR.glob("*.json")))
+        "workflows_saved": len(list(WORKFLOWS_DIR.glob("*.json"))),
+        "worker_queue_available": workflow_queue is not None
     }
-
-if __name__ == "__main__":
-    import uvicorn
-
-    print("Starting ATTPC Flow API server...")
-    print(f"Registered nodes: {list(NodeRegistry._registry.keys())}")
-    print(f"Workflows directory: {WORKFLOWS_DIR.absolute()}")
-    print("API documentation available at: http://localhost:8000/docs")
-
-    uvicorn.run(
-        "server:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True,
-        log_level="info"
-    )

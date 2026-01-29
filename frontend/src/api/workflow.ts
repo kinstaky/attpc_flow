@@ -93,3 +93,34 @@ export const executeWorkflow = async (workflowName: string) => {
 
   return await response.json()
 }
+
+// WebSocket connection for progress updates
+export const connectProgressWebSocket = (executionId: string, onProgress: (data: any) => void, onComplete: () => void) => {
+  const ws = new WebSocket(`ws://localhost:8000/ws/progress/${executionId}`)
+  
+  ws.onopen = () => {
+    console.log(`Connected to progress WebSocket for execution ${executionId}`)
+  }
+  
+  ws.onmessage = (event) => {
+    const data = JSON.parse(event.data)
+    console.log('Received progress data:', data)
+    
+    if (data.type === 'progress') {
+      onProgress(data.data)
+    } else if (data.type === 'completion') {
+      onComplete()
+      ws.close()
+    }
+  }
+  
+  ws.onerror = (error) => {
+    console.error('WebSocket error:', error)
+  }
+  
+  ws.onclose = () => {
+    console.log('WebSocket connection closed')
+  }
+  
+  return ws
+}

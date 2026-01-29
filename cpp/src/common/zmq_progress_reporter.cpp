@@ -7,12 +7,16 @@
 
 namespace atflow {
 
-ZmqProgressReporter::ZmqProgressReporter(int task_id, const std::string &endpoint)
-	: task_id_(task_id)
-	, endpoint_(endpoint)
-	, context_()
-	, socket_(context_, zmq::socket_type::push)
-{
+ZmqProgressReporter::ZmqProgressReporter(
+	std::string execution_id,
+	int task_id,
+	const std::string &endpoint
+)
+: execution_id_(execution_id)
+, task_id_(task_id)
+, endpoint_(endpoint)
+, context_()
+, socket_(context_, zmq::socket_type::push) {
 	try {
 		socket_.connect(endpoint_);
 	} catch (const zmq::error_t &e) {
@@ -27,7 +31,7 @@ ZmqProgressReporter::~ZmqProgressReporter() {
 void ZmqProgressReporter::report_progress(int percentage) {
 	try {
 		std::stringstream msg;
-		msg << task_id_ << "," << percentage;
+		msg << execution_id_ << "," << task_id_ << "," << percentage;
 		socket_.send(zmq::buffer(msg.str()), zmq::send_flags::dontwait);
 	} catch (const zmq::error_t &e) {
 		// Log but don't throw - progress reporting failure shouldn't stop processing

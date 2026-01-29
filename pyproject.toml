@@ -19,6 +19,7 @@ classifiers = [
 ]
 dependencies = [
     "fastapi>=0.128.0",
+    "colorlog>=6.0.0",
     "httpx>=0.28.1",
     "pydantic >=2.12",
     "pytest>=9.0.2",
@@ -29,6 +30,11 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/kinstaky/attpc_flow"
+
+[project.scripts]
+atflow-server = "atflow.launcher:start_server"
+atflow-worker = "atflow.launcher:start_worker"
+atflow = "atflow.launcher:launch"
 
 
 [tool.scikit-build]
@@ -42,7 +48,7 @@ build-dir = "build/{wheel_tag}"
 wheel.py-api = "cp312"
 
 # set custom package directory
-wheel.packages = ["python/attpc_flow"]
+wheel.packages = ["python/atflow"]
 
 [tool.cibuildwheel]
 # Necessary to see build output from the actual compilation

@@ -12,9 +12,10 @@ namespace atflow {
 class ZmqProgressReporter : public ProgressReporter {
 public:
 	/// @brief Constructor
+	/// @param[in] execution_id Execution identifier for progress messages
 	/// @param[in] task_id Task identifier for progress messages
 	/// @param[in] endpoint ZMQ endpoint string (e.g., "ipc://@attpc_flow_zmq")
-	ZmqProgressReporter(int task_id, const std::string &endpoint);
+	ZmqProgressReporter(std::string execution_id, int task_id, const std::string &endpoint);
 
 	/// @brief Destructor
 	~ZmqProgressReporter();
@@ -28,6 +29,7 @@ public:
 	ZmqProgressReporter &operator=(const ZmqProgressReporter &) = delete;
 
 private:
+	std::string execution_id_;
 	int task_id_;
 	std::string endpoint_;
 	zmq::context_t context_;

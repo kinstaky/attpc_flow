@@ -31,6 +31,7 @@ class NodeRegistry:
 	def dispatch(
 		cls,
 		name:str,
+		execution_id: str,
 		task_id: int,
 		environment: dict,
 		inputs: dict,
@@ -45,7 +46,13 @@ class NodeRegistry:
 		# print(environment, inputs, properties)
 
 		# combine data
-		params = {"task_id": task_id, **environment, **inputs, **properties}
+		params = {
+			"execution_id": execution_id,
+			"task_id": task_id,
+			**environment,
+			**inputs,
+			**properties
+		}
 		if info.parameters:
 			try:
 				execution_kwargs = info.parameters(**params).model_dump()

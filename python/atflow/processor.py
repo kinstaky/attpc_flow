@@ -1,14 +1,17 @@
-from .node_registry import NodeRegistry
+"""
+Task processing and execution logic for ATTPC Flow.
+Handles individual task execution and workflow orchestration.
+"""
 
 import concurrent.futures
+import threading
 from enum import IntEnum
 import logging
-import threading
-import json
 
-import zmq
-from tqdm import tqdm
+from .node_registry import NodeRegistry, NodeInfo
 
+# Set up logger
+logger = logging.getLogger(__name__)
 
 class TaskStatus(IntEnum):
 	DISCARDED = -2
@@ -23,87 +26,12 @@ def run_node(task):
 	task["status"] = TaskStatus.RUNNING
 	return NodeRegistry.dispatch(
 		name=task["name"],
+		execution_id=task["execution_id"],
 		task_id=task["id"],
 		environment=task["environment"],
 		inputs=task["inputs"],
 		properties=task["properties"]
 	)
-
-def zmq_collector(max_workers):
-	"""This function collects progress from zmq socket and displays with tqdm progress bars."""
-	ctx = zmq.Context()
-	subscriber = ctx.socket(zmq.PULL)
-	subscriber.bind("ipc://@attpc_flow_zmq")
-
-	# Dictionary to track progress bars for each task: {task_id: (pbar, position)}
-	progress_bars = {}
-	# Available positions pool (0 to max_workers-1)
-	available_positions = list(range(max_workers))
-	# Lock for thread-safe position management
-	position_lock = threading.Lock()
-
-	while True:
-		try:
-			msg = subscriber.recv().decode("utf-8").split(",")
-			if msg[0] == "-1":
-				# logging.debug(f"Received terminal message: {msg}")
-				break
-			task_id = msg[0]
-			percentage = float(msg[1])
-
-			# Create progress bar for new tasks
-			if task_id not in progress_bars:
-				with position_lock:
-					if not available_positions:
-						# No available positions, skip creating bar (shouldn't happen with proper max_workers)
-						logging.warning(f"No available position for task {task_id}")
-						continue
-					position = available_positions.pop(0)
-				progress_bars[task_id] = (
-					tqdm(
-						total=100,
-						desc=f"Task {task_id}",
-						position=position,
-						leave=False,
-						unit="%",
-						bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]"
-					),
-					position
-				)
-
-			# Update progress bar to the new percentage value
-			pbar, _ = progress_bars[task_id]
-			current_value = pbar.n
-			increment = max(0, min(percentage - current_value, 100 - current_value))
-			if increment > 0:
-				pbar.update(increment)
-
-			# Close progress bar if task is complete
-			if percentage >= 100:
-				pbar, position = progress_bars[task_id]
-				pbar.close()
-				del progress_bars[task_id]
-				# Return position to available pool
-				with position_lock:
-					available_positions.append(position)
-					available_positions.sort()  # Keep sorted for consistent ordering
-
-			# logging.debug(f"Received message: Task {task_id} in progress {percentage}%.")
-		except zmq.ZMQError as e:
-			logging.error(f"ZMQ error: {e}")
-
-	# Close all progress bars
-	for pbar, _ in progress_bars.values():
-		pbar.close()
-
-def send_terminal_message():
-	"""This function sends terminal message to zmq socket."""
-	ctx = zmq.Context()
-	publisher = ctx.socket(zmq.PUSH)
-	publisher.connect("ipc://@attpc_flow_zmq")
-	publisher.send(b"-1")
-	logging.debug(f"Sent terminal message: {b'-1'}")
-
 
 class Processor:
 	def __init__(self, threads, environment, tasks):
@@ -113,10 +41,7 @@ class Processor:
 		self.futures_to_task = {}
 
 	def process(self):
-		# submit zmq collector in a separate thread
-		collector_thread = threading.Thread(target=zmq_collector, args=(self.threads,), daemon=True)
-		collector_thread.start()
-
+		# No collector needed here - handled by manager
 		with concurrent.futures.ProcessPoolExecutor(max_workers=self.threads) as executor:
 			# submit initial ready tasks
 			self._submit_ready_tasks(executor)
@@ -138,16 +63,15 @@ class Processor:
 					except Exception as e:
 						# failed
 						task["status"] = TaskStatus.FAILED
-						logging.error(f"Task {task["id"]} failed: {e}")
+						logger.error(f"Task {task['id']} failed: {e}")
 					# submit new tasks
 					self._reduce_waiting(task["id"])
 					self._submit_ready_tasks(executor)
-		send_terminal_message()
 		for task in self.tasks:
 			if task["status"] == TaskStatus.COMPLETED:
-				print(f"Task {task["id"]} completed with result: {task["outputs"]}")
+				logger.info(f"Task {task["id"]} completed with result: {task["outputs"]}")
 			elif task["status"] == TaskStatus.FAILED:
-				print(f"Task {task["id"]} failed.")
+				logger.info(f"Task {task["id"]} failed.")
 
 	def _init_tasks(self, pre_tasks):
 		offset = 0
@@ -155,6 +79,7 @@ class Processor:
 		for run in self.environment["run_list"]:
 			for ptask in pre_tasks:
 				task = {
+					"execution_id": self.environment["execution_id"],
 					"id": ptask.id + offset,
 					"name": ptask.name,
 					"environment": {
@@ -236,4 +161,5 @@ class Processor:
 
 	@classmethod
 	def run(cls, threads, environment, tasks):
-		cls(threads, environment, tasks).process()
+		processor = cls(threads, environment, tasks)
+		processor.process()

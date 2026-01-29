@@ -9,6 +9,7 @@ namespace nb = nanobind;
 using namespace nb::literals;
 
 bool check_graw_event_id(
+	std::string execution_id,
 	int task_id,
 	std::string workspace_dir,
 	std::string graw_dir,
@@ -18,7 +19,7 @@ bool check_graw_event_id(
 
 	if (task_id >= 0) {
 		progress_reporter = std::make_unique<atflow::ZmqProgressReporter>(
-			task_id, "ipc://@attpc_flow_zmq"
+			execution_id, task_id, "ipc://@attpc_flow_zmq"
 		);
 	}
 
@@ -37,7 +38,11 @@ NB_MODULE(attpc_flow_ext, m) {
 	m.def(
 		"check_graw_event_id",
 		&check_graw_event_id,
-		"task_id"_a, "workspace_dir"_a, "graw_dir"_a, "run"_a,
+		"execution_id"_a,
+		"task_id"_a,
+		"workspace_dir"_a,
+		"graw_dir"_a,
+		"run"_a,
 		"This function check single run graw files."
 	);
 }

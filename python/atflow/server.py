@@ -4,7 +4,7 @@ FastAPI server for ATTPC Flow workflow management.
 Provides RESTful API for node registry and workflow operations.
 """
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -14,9 +14,13 @@ import json
 from pathlib import Path
 import multiprocessing as mp
 from multiprocessing import Queue
+import asyncio
+import time
+import threading
 
 from atflow.node_registry import NodeRegistry
 from atflow.nodes import *  # Import all nodes to register them
+from atflow.progress_store import progress_store
 
 app = FastAPI(
     title="ATTPC Flow API",
@@ -119,6 +123,45 @@ executions: Dict[str, ExecutionStatus] = {}
 
 # Global workflow queue for multiprocessing
 workflow_queue: Optional[Queue] = None
+
+# WebSocket manager for progress broadcasting
+class WebSocketManager:
+	def __init__(self):
+		self.active_connections: Dict[str, List[WebSocket]] = {}
+		
+	async def connect(self, websocket: WebSocket, execution_id: str):
+		await websocket.accept()
+		if execution_id not in self.active_connections:
+			self.active_connections[execution_id] = []
+		self.active_connections[execution_id].append(websocket)
+		
+		# Register callback with progress store
+		def progress_callback(message: dict):
+			# Send message to this specific websocket
+			try:
+				import asyncio
+				# Create task to avoid blocking
+				asyncio.create_task(websocket.send_json(message))
+			except Exception as e:
+				logging.error(f"Failed to send WebSocket message: {e}")
+				# Remove this connection from active connections
+				self.disconnect(websocket, execution_id)
+			
+		progress_store.register_websocket_callback(execution_id, progress_callback)
+		
+	def disconnect(self, websocket: WebSocket, execution_id: str):
+		if execution_id in self.active_connections:
+			try:
+				self.active_connections[execution_id].remove(websocket)
+			except ValueError:
+				pass  # Connection already removed
+			
+		# Unregister callback from progress store
+		# Note: We don't have the callback reference, so cleanup happens automatically
+		# when callbacks fail in progress_callback function
+
+# Global WebSocket manager instance
+websocket_manager = WebSocketManager()
 
 def init_workflow_queue(queue: Queue):
     """Initialize the global workflow queue."""
@@ -431,73 +474,99 @@ def _adapt_workflow(execution_id: str, workflow: Workflow):
 
 @app.post("/executions/{workflow_id}", response_model=ExecutionStatus)
 async def execute_workflow(workflow_id: str):
-    """Execute a workflow."""
-    try:
-        # Load workflow
-        file_path = WORKFLOWS_DIR / f"{workflow_id}.json"
-        if not file_path.exists():
-            raise HTTPException(status_code=404, detail=f"Workflow '{workflow_id}' not found")
+	"""Execute a workflow."""
+	try:
+		# Load workflow
+		file_path = WORKFLOWS_DIR / f"{workflow_id}.json"
+		if not file_path.exists():
+			raise HTTPException(status_code=404, detail=f"Workflow '{workflow_id}' not found")
 
-        with open(file_path, 'r') as f:
-            workflow_data = json.load(f)
-            workflow = Workflow.model_validate(workflow_data)
+		with open(file_path, 'r') as f:
+			workflow_data = json.load(f)
+			workflow = Workflow.model_validate(workflow_data)
 
-        # Generate execution ID
-        import uuid
-        execution_id = str(uuid.uuid4())
+		# Generate execution ID
+		import uuid
+		execution_id = str(uuid.uuid4())
 
-        # Create execution status
-        from datetime import datetime, timezone
-        status = ExecutionStatus(
-            execution_id=execution_id,
-            workflow_id=workflow_id,
-            status="waiting",
-        )
+		# Create execution status
+		from datetime import datetime, timezone
+		status = ExecutionStatus(
+			execution_id=execution_id,
+			workflow_id=workflow_id,
+			status="waiting",
+		)
 
-        # Store execution status
-        executions[execution_id] = status
+		# Store execution status
+		executions[execution_id] = status
 
-        # Adapt workflow to execution format
-        adapted_workflow = _adapt_workflow(
-            execution_id=execution_id,
-            workflow=workflow
-        )
+		# Adapt workflow to execution format
+		adapted_workflow = _adapt_workflow(
+			execution_id=execution_id,
+			workflow=workflow
+		)
 
-        # Send validated workflow to message queue for workers
-        if workflow_queue:
-            workflow_queue.put(adapted_workflow)
-        else:
-            # Fallback: process directly if no queue available
-            status.status = "failed"
-            status.completed_at = datetime.now(timezone.utc).isoformat()
-            raise HTTPException(status_code=503, detail="Worker queue not available")
+		# Send validated workflow to message queue for workers
+		if workflow_queue:
+			workflow_queue.put(adapted_workflow)
+		else:
+			# Fallback: process directly if no queue available
+			status.status = "failed"
+			status.completed_at = datetime.now(timezone.utc).isoformat()
+			raise HTTPException(status_code=503, detail="Worker queue not available")
 
-        return status
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to execute workflow: {str(e)}")
+		return status
+	except HTTPException:
+		raise
+	except Exception as e:
+		raise HTTPException(status_code=500, detail=f"Failed to execute workflow: {str(e)}")
 
-# @app.get("/executions/{execution_id}", response_model=ExecutionStatus)
-# async def get_execution_status(execution_id: str):
-#     """Get specific execution status."""
-#     try:
-#         if execution_id not in executions:
-#             raise HTTPException(status_code=404, detail=f"Execution '{execution_id}' not found")
+@app.websocket("/ws/progress/{execution_id}")
+async def progress_websocket(websocket: WebSocket, execution_id: str):
+	"""WebSocket endpoint for real-time progress updates."""
+	await websocket_manager.connect(websocket, execution_id)
+	try:
+		# Send current progress history to new connection
+		current_progress = progress_store.get_progress(execution_id)
+		if current_progress:
+			for task_progress in current_progress.values():
+				await websocket.send_json({
+					"type": "progress",
+					"data": {
+						"task_id": task_progress.task_id,
+						"percentage": task_progress.percentage,
+						"timestamp": task_progress.timestamp,
+						"status": task_progress.status
+					}
+				})
 
-#         return executions[execution_id]
-#     except HTTPException:
-#         raise
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=f"Failed to get execution status: {str(e)}")
+		# Keep connection alive
+		while True:
+			await websocket.receive_text()
+	except WebSocketDisconnect:
+		websocket_manager.disconnect(websocket, execution_id)
+		logging.info(f"WebSocket disconnected for execution {execution_id}")
 
-# @app.get("/executions", response_model=List[ExecutionStatus])
-# async def list_executions():
-#     """List all executions."""
-#     try:
-#         return list(executions.values())
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=f"Failed to list executions: {str(e)}")
+@app.get("/executions/{execution_id}", response_model=ExecutionStatus)
+async def get_execution_status(execution_id: str):
+	"""Get specific execution status."""
+	try:
+		if execution_id not in executions:
+			raise HTTPException(status_code=404, detail=f"Execution '{execution_id}' not found")
+
+		return executions[execution_id]
+	except HTTPException:
+		raise
+	except Exception as e:
+		raise HTTPException(status_code=500, detail=f"Failed to get execution status: {str(e)}")
+
+@app.get("/executions", response_model=List[ExecutionStatus])
+async def list_executions():
+	"""List all executions."""
+	try:
+		return list(executions.values())
+	except Exception as e:
+		raise HTTPException(status_code=500, detail=f"Failed to list executions: {str(e)}")
 
 # Health check
 @app.get("/health")
@@ -509,3 +578,11 @@ async def health_check():
         "workflows_saved": len(list(WORKFLOWS_DIR.glob("*.json"))),
         "worker_queue_available": workflow_queue is not None
     }
+
+def run_server(host="0.0.0.0", port=8000):
+    """Run the FastAPI server."""
+    import uvicorn
+    uvicorn.run(app, host=host, port=port)
+
+if __name__ == "__main__":
+    run_server()

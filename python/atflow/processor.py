@@ -4,11 +4,12 @@ Handles individual task execution and workflow orchestration.
 """
 
 import concurrent.futures
-import threading
 from enum import IntEnum
 import logging
+import zmq
+import json
 
-from .node_registry import NodeRegistry, NodeInfo
+from .node_registry import NodeRegistry
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -39,9 +40,17 @@ class Processor:
 		self.environment = environment
 		self._init_tasks(tasks)
 		self.futures_to_task = {}
+		# zmq
+		self.zmq_context = zmq.Context()
+		self.publisher = self.zmq_context.socket(zmq.PUSH)
+		self.publisher.connect("ipc://@attpc_flow_zmq")
 
 	def process(self):
-		# No collector needed here - handled by manager
+		execution_id = self.environment.get("execution_id")
+
+		# Report execution start
+		self.publisher.send_string(f"execution,start,{execution_id},{len(self.tasks)}")
+
 		with concurrent.futures.ProcessPoolExecutor(max_workers=self.threads) as executor:
 			# submit initial ready tasks
 			self._submit_ready_tasks(executor)
@@ -54,19 +63,39 @@ class Processor:
 				for future in done:
 					# get task from future
 					task = self.futures_to_task.pop(future)
+
 					# check result
 					try:
 						# success
 						result = future.result()
 						task["status"] = TaskStatus.COMPLETED
 						task["outputs"] = result
+
 					except Exception as e:
 						# failed
 						task["status"] = TaskStatus.FAILED
 						logger.error(f"Task {task['id']} failed: {e}")
+						# Report task failed
+						self.publisher.send_string(f"task,failed,{execution_id},{task['id']}")
+
+					finally:
+						completed_tasks = 0
+						for jtask in self.tasks:
+							if (
+								jtask["status"] == TaskStatus.DISCARDED
+								or jtask["status"] == TaskStatus.FAILED
+								or jtask["status"] == TaskStatus.COMPLETED
+							):
+								completed_tasks += 1
+						self.publisher.send_string(f"execution,progress,{execution_id},{completed_tasks},{len(self.tasks)}")
+
 					# submit new tasks
 					self._reduce_waiting(task["id"])
 					self._submit_ready_tasks(executor)
+
+		# Report execution finish
+		self.publisher.send_string(f"execution,finish,{execution_id},{len(self.tasks)}")
+
 		for task in self.tasks:
 			if task["status"] == TaskStatus.COMPLETED:
 				logger.info(f"Task {task["id"]} completed with result: {task["outputs"]}")

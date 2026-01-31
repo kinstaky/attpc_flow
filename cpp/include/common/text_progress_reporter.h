@@ -15,11 +15,17 @@ public:
 	explicit TextProgressReporter(const std::string &prefix = "");
 
 	/// @brief Destructor
-	~TextProgressReporter() override;
+	virtual ~TextProgressReporter() override = default;
+
+	/// @brief Report the start of a task via stdout
+	virtual void ReportStart() override;
 
 	/// @brief Report progress percentage via stdout
 	/// @param[in] percentage Progress percentage (0-100)
-	void report_progress(int percentage) override;
+	virtual void ReportProgress(int percentage) override;
+
+	/// @brief Report the finish of a task via stdout
+	virtual void ReportFinish() override;
 
 	// Delete copy constructor and assignment operator
 	TextProgressReporter(const TextProgressReporter &) = delete;
@@ -27,7 +33,6 @@ public:
 
 private:
 	std::string prefix_;
-	bool first_report_;
 };
 
 }

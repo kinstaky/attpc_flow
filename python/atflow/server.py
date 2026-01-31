@@ -4,158 +4,128 @@ FastAPI server for ATTPC Flow workflow management.
 Provides RESTful API for node registry and workflow operations.
 """
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+import asyncio
+import logging
+import json
+import uvicorn
+from typing import Dict, List, Optional
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field, ConfigDict
-from typing import Dict, List, Optional, Any, Literal
-import json
+from pydantic import BaseModel, Field
+from typing import Dict, List, Optional, Any
 from pathlib import Path
-import multiprocessing as mp
-from multiprocessing import Queue
-import asyncio
-import time
-import threading
 
 from atflow.node_registry import NodeRegistry
 from atflow.nodes import *  # Import all nodes to register them
-from atflow.progress_store import progress_store
+from atflow.progress_store import (
+    progress_store,
+    ExecutionStatus,
+)
 
 app = FastAPI(
-    title="ATTPC Flow API",
-    description="Workflow management API for AT-TPC analysis",
-    version="0.1.0"
+	title="ATTPC Flow API",
+	description="Workflow management API for AT-TPC analysis",
+	version="0.1.0"
 )
 
 # Enable CORS for frontend development
 app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # In production, specify actual origins
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+	CORSMiddleware,
+	allow_origins=["*"],  # In production, specify actual origins
+	allow_credentials=True,
+	allow_methods=["*"],
+	allow_headers=["*"],
 )
 
 # Mount static files for frontend
 app.mount("/assets", StaticFiles(directory="frontend/dist/assets"), name="assets")
 
 def to_camel(string: str) -> str:
-    return ''.join(word.capitalize() for word in string.split('_'))
+	return ''.join(word.capitalize() for word in string.split('_'))
 
 def to_lower_camel(s: str) -> str:
-    parts = s.split("_")
-    return parts[0] + "".join(word.capitalize() for word in parts[1:])
+	parts = s.split("_")
+	return parts[0] + "".join(word.capitalize() for word in parts[1:])
 
 # Data models
 class SimpleNodeResponse(BaseModel):
-    name: str
-    category: str
+	name: str
+	category: str
 
 class NodeResponse(BaseModel):
-    name: str
-    category: str
-    inputs: Optional[Dict[str, str]] = None
-    outputs: Optional[Dict[str, str]] = None
-    properties: Optional[Dict[str, str]] = None
-    parameters: Optional[Dict[str, str]] = None
+	name: str
+	category: str
+	inputs: Optional[Dict[str, str]] = None
+	outputs: Optional[Dict[str, str]] = None
+	properties: Optional[Dict[str, str]] = None
+	parameters: Optional[Dict[str, str]] = None
 
 class WorkflowNode(BaseModel):
-    id: int
-    name: str
-    position: Dict[str, float]
-    inputs: List[Dict[str, str]] = Field(default_factory=list)
-    outputs: List[Dict[str, str]] = Field(default_factory=list)
-    properties: List[Dict[str, Any]] = Field(default_factory=list)
+	id: int
+	name: str
+	position: Dict[str, float]
+	inputs: List[Dict[str, str]] = Field(default_factory=list)
+	outputs: List[Dict[str, str]] = Field(default_factory=list)
+	properties: List[Dict[str, Any]] = Field(default_factory=list)
 
 class WorkflowLink(BaseModel):
-    id: int
-    source: int
-    sourceHandle: str
-    target: int
-    targetHandle: str
+	id: int
+	source: int
+	sourceHandle: str
+	target: int
+	targetHandle: str
 
 class Workflow(BaseModel):
-    name: str
-    workspace: Optional[str] = None
-    workers: int = 2
-    run_list: List[int] = Field(alias="runList", default_factory=list)
-    run_numbers: str = Field(alias="runNumbers", default="")
-    nodes: List[WorkflowNode] = Field(default_factory=list)
-    links: List[WorkflowLink] = Field(default_factory=list)
-    last_node: int = Field(alias="lastNode")
-    last_link: int = Field(alias="lastLink")
-
-class TaskPort(BaseModel):
-    name: str
-    link_task: int = -1
-    link_port: int = -1
-    value: Any
-
-class Task(BaseModel):
-    id: int
-    name: str
-    inputs: List[TaskPort] = Field(default_factory=list)
-    properties: List[TaskPort] = Field(default_factory=list)
-    waiting: List[int] = Field(default_factory=list)
-
-class ExecuteWorkflow(BaseModel):
-    execution_id: str
-    workflow_name: str
-    workspace: str
-    threads: int
-    run_list: List[int] = Field(default_factory=list)
-    tasks: List[Task] = Field(default_factory=list)
-
-class ExecutionStatus(BaseModel):
-    execution_id: str
-    workflow_id: str
-    status: Literal["waiting", "running", "completed", "failed"]
-    started_at: Optional[str] = None
-    completed_at: Optional[str] = None
+	name: str
+	workspace: Optional[str] = None
+	workers: int = 2
+	run_list: List[int] = Field(alias="runList", default_factory=list)
+	run_numbers: str = Field(alias="runNumbers", default="")
+	nodes: List[WorkflowNode] = Field(default_factory=list)
+	links: List[WorkflowLink] = Field(default_factory=list)
+	last_node: int = Field(alias="lastNode")
+	last_link: int = Field(alias="lastLink")
 
 # Storage
 WORKFLOWS_DIR = Path("workflows")
 WORKFLOWS_DIR.mkdir(exist_ok=True)
 
-# In-memory execution tracking (for demo purposes)
-executions: Dict[str, ExecutionStatus] = {}
-
-# Global workflow queue for multiprocessing
-workflow_queue: Optional[Queue] = None
-
 # WebSocket manager for progress broadcasting
 class WebSocketManager:
 	def __init__(self):
-		self.active_connections: Dict[str, List[WebSocket]] = {}
-		
-	async def connect(self, websocket: WebSocket, execution_id: str):
+		self.active_connections: List[WebSocket] = []
+		self.loop = None  # Will be set when server starts
+
+	async def connect(self, websocket: WebSocket):
 		await websocket.accept()
-		if execution_id not in self.active_connections:
-			self.active_connections[execution_id] = []
-		self.active_connections[execution_id].append(websocket)
-		
+		self.active_connections.append(websocket)
+
+		# Store the event loop for this connection
+		if self.loop is None:
+			self.loop = asyncio.get_running_loop()
+
 		# Register callback with progress store
 		def progress_callback(message: dict):
 			# Send message to this specific websocket
 			try:
-				import asyncio
-				# Create task to avoid blocking
-				asyncio.create_task(websocket.send_json(message))
+				if self.loop and not self.loop.is_closed():
+					# Use run_coroutine_threadsafe for thread-safe async execution
+					asyncio.run_coroutine_threadsafe(websocket.send_json(message), self.loop)
 			except Exception as e:
 				logging.error(f"Failed to send WebSocket message: {e}")
 				# Remove this connection from active connections
-				self.disconnect(websocket, execution_id)
-			
-		progress_store.register_websocket_callback(execution_id, progress_callback)
-		
-	def disconnect(self, websocket: WebSocket, execution_id: str):
-		if execution_id in self.active_connections:
-			try:
-				self.active_connections[execution_id].remove(websocket)
-			except ValueError:
-				pass  # Connection already removed
-			
+				self.disconnect(websocket)
+
+		progress_store.register_websocket_callback(progress_callback)
+
+	def disconnect(self, websocket: WebSocket):
+		try:
+			self.active_connections.remove(websocket)
+		except ValueError:
+			pass  # Connection already removed
+
 		# Unregister callback from progress store
 		# Note: We don't have the callback reference, so cleanup happens automatically
 		# when callbacks fail in progress_callback function
@@ -163,314 +133,206 @@ class WebSocketManager:
 # Global WebSocket manager instance
 websocket_manager = WebSocketManager()
 
-def init_workflow_queue(queue: Queue):
-    """Initialize the global workflow queue."""
-    global workflow_queue
-    workflow_queue = queue
-
 # Helper functions
 def translate_type(python_type: str) -> str:
-    type_mapping = {
-        "integer": "int",
-        "string": "str",
-        "float": "float",
-        "boolean": "bool"
-    }
-    return type_mapping.get(python_type)
+	type_mapping = {
+		"integer": "int",
+		"string": "str",
+		"float": "float",
+		"boolean": "bool"
+	}
+	return type_mapping.get(python_type)
 
 def get_node_schema(pydantic_class) -> Optional[Dict[str, Any]]:
-    """Extract JSON schema from Pydantic model."""
-    if pydantic_class is None:
-        return None
-    try:
-        schema = pydantic_class.model_json_schema()
-        return {
-            key: (
-                translate_type(value["items"]["type"]) + "[]"
-                if value["type"] == "array"
-                else translate_type(value["type"])
-            )
-            for key, value in schema["properties"].items()
-        }
-    except Exception:
-        return None
+	"""Extract JSON schema from Pydantic model."""
+	if pydantic_class is None:
+		return None
+	try:
+		schema = pydantic_class.model_json_schema()
+		return {
+			key: (
+				translate_type(value["items"]["type"]) + "[]"
+				if value["type"] == "array"
+				else translate_type(value["type"])
+			)
+			for key, value in schema["properties"].items()
+		}
+	except Exception:
+		return None
 
 def organize_nodes_by_category() -> Dict[str, List[str]]:
-    """Organize registered nodes by their Python module directory."""
-    categories = {}
+	"""Organize registered nodes by their Python module directory."""
+	categories = {}
 
-    for name, entry in NodeRegistry._registry.items():
-        # Determine category from node class module
-        module_name = entry.node_class.__module__
-        category = module_name.split('.')[-1]
-        if category not in categories:
-            categories[category] = []
+	for name, entry in NodeRegistry._registry.items():
+		# Determine category from node class module
+		module_name = entry.node_class.__module__
+		category = module_name.split('.')[-1]
+		if category not in categories:
+			categories[category] = []
 
-        # Add just the node name
-        categories[category].append(name)
+		# Add just the node name
+		categories[category].append(name)
 
-    return categories
+	return categories
 
 # API Endpoints
 @app.get("/")
 async def root():
-    """Serve the frontend index.html."""
-    try:
-        return FileResponse("frontend/dist/index.html")
-    except FileNotFoundError:
-        return {
-            "message": "ATTPC Flow API",
-            "version": "0.1.0",
-            "docs": "/docs",
-            "nodes": "/nodes",
-            "workflows": "/workflows",
-            "note": "Frontend not built. Run 'npm run build' in frontend directory."
-        }
+	"""Serve the frontend index.html."""
+	try:
+		return FileResponse("frontend/dist/index.html")
+	except FileNotFoundError:
+		return {
+			"message": "ATTPC Flow API",
+			"version": "0.1.0",
+			"docs": "/docs",
+			"nodes": "/nodes",
+			"workflows": "/workflows",
+			"note": "Frontend not built. Run 'npm run build' in frontend directory."
+		}
 
 @app.get("/api")
 async def api_info():
-    """API information endpoint."""
-    return {
-        "message": "ATTPC Flow API",
-        "version": "0.1.0",
-        "docs": "/docs",
-        "nodes": "/nodes",
-        "workflows": "/workflows"
-    }
+	"""API information endpoint."""
+	return {
+		"message": "ATTPC Flow API",
+		"version": "0.1.0",
+		"docs": "/docs",
+		"nodes": "/nodes",
+		"workflows": "/workflows"
+	}
 
 @app.get("/nodes", response_model=Dict[str, List[str]])
 async def list_nodes():
-    """Get all available node names organized by category."""
-    try:
-        return organize_nodes_by_category()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get nodes: {str(e)}")
+	"""Get all available node names organized by category."""
+	try:
+		return organize_nodes_by_category()
+	except Exception as e:
+		raise HTTPException(status_code=500, detail=f"Failed to get nodes: {str(e)}")
 
 @app.get("/nodes/{node_name}", response_model=NodeResponse)
 async def get_node(node_name: str):
-    """Get specific node information."""
-    try:
-        entry = NodeRegistry._registry.get(node_name)
-        if not entry:
-            raise HTTPException(status_code=404, detail=f"Node '{node_name}' not found")
+	"""Get specific node information."""
+	try:
+		entry = NodeRegistry._registry.get(node_name)
+		if not entry:
+			raise HTTPException(status_code=404, detail=f"Node '{node_name}' not found")
 
-        info = entry.info
-        module_name = entry.node_class.__module__
-        category = module_name.split('.')[-1]
+		info = entry.info
+		module_name = entry.node_class.__module__
+		category = module_name.split('.')[-1]
 
-        return NodeResponse(
-            name=node_name,
-            category=category,
-            inputs=info.inputs,
-            outputs=info.outputs,
-            properties=info.properties,
-            parameters=get_node_schema(info.parameters),
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get node: {str(e)}")
+		return NodeResponse(
+			name=node_name,
+			category=category,
+			inputs=info.inputs,
+			outputs=info.outputs,
+			properties=info.properties,
+			parameters=get_node_schema(info.parameters),
+		)
+	except HTTPException:
+		raise
+	except Exception as e:
+		raise HTTPException(status_code=500, detail=f"Failed to get node: {str(e)}")
 
 @app.get("/nodes_dev/{node_name}", response_model=Dict[Any, Any])
 async def get_dev_node(node_name: str):
-    try:
-        entry = NodeRegistry._registry.get(node_name)
-        if not entry:
-            raise HTTPException(status_code=404, detail=f"Node '{node_name}' not found")
+	try:
+		entry = NodeRegistry._registry.get(node_name)
+		if not entry:
+			raise HTTPException(status_code=404, detail=f"Node '{node_name}' not found")
 
-        info = entry.info
-        module_name = entry.node_class.__module__
-        category = module_name.split('.')[-1]
+		info = entry.info
+		module_name = entry.node_class.__module__
+		category = module_name.split('.')[-1]
 
-        return {
-            "name": node_name,
-            "category": category,
-            "inputs": info.inputs,
-            "outputs": info.outputs,
-            "properties": info.properties,
-            "parameters": info.parameters.model_json_schema()
-        }
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get node: {str(e)}")
+		return {
+			"name": node_name,
+			"category": category,
+			"inputs": info.inputs,
+			"outputs": info.outputs,
+			"properties": info.properties,
+			"parameters": info.parameters.model_json_schema()
+		}
+	except HTTPException:
+		raise
+	except Exception as e:
+		raise HTTPException(status_code=500, detail=f"Failed to get node: {str(e)}")
 
 @app.get("/workflows", response_model=List[str])
 async def list_workflows():
-    """List all saved workflow names."""
-    try:
-        workflow_names = []
-        for file_path in WORKFLOWS_DIR.glob("*.json"):
-            workflow_names.append(file_path.stem)
-        return workflow_names
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to list workflows: {str(e)}")
+	"""List all saved workflow names."""
+	try:
+		workflow_names = []
+		for file_path in WORKFLOWS_DIR.glob("*.json"):
+			workflow_names.append(file_path.stem)
+		return workflow_names
+	except Exception as e:
+		raise HTTPException(status_code=500, detail=f"Failed to list workflows: {str(e)}")
 
 @app.post("/workflows", response_model=Workflow)
 async def create_workflow(workflow: Workflow):
-    """Create or save a workflow."""
-    try:
-        # Save to file
-        file_path = WORKFLOWS_DIR / f"{workflow.name}.json"
-        with open(file_path, 'w') as f:
-            json.dump(workflow.model_dump(by_alias=True), f, indent=2)
+	"""Create or save a workflow."""
+	try:
+		# Save to file
+		file_path = WORKFLOWS_DIR / f"{workflow.name}.json"
+		with open(file_path, 'w') as f:
+			json.dump(workflow.model_dump(by_alias=True), f, indent=2)
 
-        return workflow
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to create workflow: {str(e)}")
+		return workflow
+	except Exception as e:
+		raise HTTPException(status_code=500, detail=f"Failed to create workflow: {str(e)}")
 
 @app.get("/workflows/{workflow_id}", response_model=Workflow)
 async def get_workflow(workflow_id: str):
-    """Get a specific workflow."""
-    try:
-        file_path = WORKFLOWS_DIR / f"{workflow_id}.json"
-        if not file_path.exists():
-            raise HTTPException(status_code=404, detail=f"Workflow '{workflow_id}' not found")
+	"""Get a specific workflow."""
+	try:
+		file_path = WORKFLOWS_DIR / f"{workflow_id}.json"
+		if not file_path.exists():
+			raise HTTPException(status_code=404, detail=f"Workflow '{workflow_id}' not found")
 
-        with open(file_path, 'r') as f:
-            workflow_data = json.load(f)
-            return Workflow.model_validate(workflow_data)
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get workflow: {str(e)}")
+		with open(file_path, 'r') as f:
+			workflow_data = json.load(f)
+			return Workflow.model_validate(workflow_data)
+	except HTTPException:
+		raise
+	except Exception as e:
+		raise HTTPException(status_code=500, detail=f"Failed to get workflow: {str(e)}")
 
 @app.put("/workflows/{workflow_id}", response_model=Workflow)
 async def update_workflow(workflow_id: str, workflow: Workflow):
-    """Update an existing workflow."""
-    try:
-        # Check if workflow exists
-        file_path = WORKFLOWS_DIR / f"{workflow_id}.json"
-        if not file_path.exists():
-            raise HTTPException(status_code=404, detail=f"Workflow '{workflow_id}' not found")
+	"""Update an existing workflow."""
+	try:
+		# Check if workflow exists
+		file_path = WORKFLOWS_DIR / f"{workflow_id}.json"
+		if not file_path.exists():
+			raise HTTPException(status_code=404, detail=f"Workflow '{workflow_id}' not found")
 
-        # Save updated workflow
-        with open(file_path, 'w') as f:
-            json.dump(workflow.model_dump(by_alias=True), f, indent=2)
+		# Save updated workflow
+		with open(file_path, 'w') as f:
+			json.dump(workflow.model_dump(by_alias=True), f, indent=2)
 
-        return workflow
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to update workflow: {str(e)}")
+		return workflow
+	except HTTPException:
+		raise
+	except Exception as e:
+		raise HTTPException(status_code=500, detail=f"Failed to update workflow: {str(e)}")
 
 @app.delete("/workflows/{workflow_id}")
 async def delete_workflow(workflow_id: str):
-    """Delete a workflow."""
-    try:
-        file_path = WORKFLOWS_DIR / f"{workflow_id}.json"
-        if not file_path.exists():
-            raise HTTPException(status_code=404, detail=f"Workflow '{workflow_id}' not found")
+	"""Delete a workflow."""
+	try:
+		file_path = WORKFLOWS_DIR / f"{workflow_id}.json"
+		if not file_path.exists():
+			raise HTTPException(status_code=404, detail=f"Workflow '{workflow_id}' not found")
 
-        file_path.unlink()
-        return {"message": f"Workflow '{workflow_id}' deleted successfully"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to delete workflow: {str(e)}")
-
-
-def _getPortType(
-    workflow: Workflow,
-    node_id: int,
-    port_type: str,
-    port_name: str
-) -> Optional[str]:
-    for node in workflow.nodes:
-        node = node.model_dump()
-        if node["id"] != node_id:
-            continue
-        port_id = int(port_name.split("-")[1])
-        return node[port_type][port_id]["type"]
-    return None
-
-def _parse_property_value(prop: Dict[str, str]):
-    # parse property value
-    result = None
-    if ("[]" in prop["type"]):
-        result = []
-        value = prop["value"].split(",")
-        if (prop["type"] == "int[]"):
-            for v in value:
-                if "-" in v:
-                    start = int(v.split("-")[0])
-                    end = int(v.split("-")[1])
-                    for i in range(start, end+1):
-                        result.append(i)
-                else:
-                    result.append(int(v))
-        elif (prop["type"] == "float[]"):
-            result = [float(v) for v in value]
-        elif (prop["type"] == "bool[]"):
-            result = [bool(v) for v in value]
-        elif (prop["type"] == "str[]"):
-            result = value
-    else:
-        match prop["type"]:
-            case "int":
-                result = int(prop["value"])
-            case "float":
-                result = float(prop["value"])
-            case "bool":
-                result = bool(prop["value"])
-            case "str":
-                result = prop["value"]
-    return result
-
-"""Help function to adapt workflow to execution task."""
-def _adapt_workflow(execution_id: str, workflow: Workflow):
-    """Adapt workflow to execution task."""
-    execution_workflow = ExecuteWorkflow(
-        execution_id=execution_id,
-        workflow_name=workflow.name,
-        workspace=workflow.workspace,
-        threads=workflow.workers,
-        run_list=workflow.run_list,
-    )
-    id_map = {}
-    # loop nodes
-    for idx, node in enumerate(workflow.nodes):
-        id_map[node.id] = idx
-        task = Task(
-            id=idx,
-            name=node.name,
-        )
-        for inp in node.inputs:
-            exec_input = TaskPort(
-                name=inp["name"],
-                value=None,
-            )
-            task.inputs.append(exec_input)
-        for prop in node.properties:
-            exec_prop = TaskPort(
-                name=prop["name"],
-                value=None,
-            )
-            # parse property value
-            try:
-                value = _parse_property_value(prop)
-            except Exception:
-                value = None
-            exec_prop.value = value
-            task.properties.append(exec_prop)
-        execution_workflow.tasks.append(task)
-
-    # loop links
-    for idx, link in enumerate(workflow.links):
-        source_id = id_map[link.source]
-        source_pid = int(link.sourceHandle.split("-")[1])
-        target_task = execution_workflow.tasks[id_map[link.target]]
-        target_pid = int(link.targetHandle.split("-")[1])
-
-        if link.targetHandle.startswith("property-"):
-            target_port = target_task.properties[target_pid]
-        else:
-            target_port = target_task.inputs[target_pid]
-        target_port.link_task = source_id
-        target_port.link_port = source_pid
-        target_task.waiting.append(source_id)
-
-    return execution_workflow
+		file_path.unlink()
+		return {"message": f"Workflow '{workflow_id}' deleted successfully"}
+	except HTTPException:
+		raise
+	except Exception as e:
+		raise HTTPException(status_code=500, detail=f"Failed to delete workflow: {str(e)}")
 
 @app.post("/executions/{workflow_id}", response_model=ExecutionStatus)
 async def execute_workflow(workflow_id: str):
@@ -485,35 +347,8 @@ async def execute_workflow(workflow_id: str):
 			workflow_data = json.load(f)
 			workflow = Workflow.model_validate(workflow_data)
 
-		# Generate execution ID
-		import uuid
-		execution_id = str(uuid.uuid4())
-
-		# Create execution status
-		from datetime import datetime, timezone
-		status = ExecutionStatus(
-			execution_id=execution_id,
-			workflow_id=workflow_id,
-			status="waiting",
-		)
-
-		# Store execution status
-		executions[execution_id] = status
-
-		# Adapt workflow to execution format
-		adapted_workflow = _adapt_workflow(
-			execution_id=execution_id,
-			workflow=workflow
-		)
-
-		# Send validated workflow to message queue for workers
-		if workflow_queue:
-			workflow_queue.put(adapted_workflow)
-		else:
-			# Fallback: process directly if no queue available
-			status.status = "failed"
-			status.completed_at = datetime.now(timezone.utc).isoformat()
-			raise HTTPException(status_code=503, detail="Worker queue not available")
+		# Execute workflow using progress store
+		status = progress_store.create_execution(workflow)
 
 		return status
 	except HTTPException:
@@ -521,36 +356,48 @@ async def execute_workflow(workflow_id: str):
 	except Exception as e:
 		raise HTTPException(status_code=500, detail=f"Failed to execute workflow: {str(e)}")
 
-@app.websocket("/ws/progress/{execution_id}")
-async def progress_websocket(websocket: WebSocket, execution_id: str):
+@app.websocket("/ws/progress")
+async def progress_websocket(websocket: WebSocket):
 	"""WebSocket endpoint for real-time progress updates."""
-	await websocket_manager.connect(websocket, execution_id)
+	await websocket_manager.connect(websocket)
 	try:
-		# Send current progress history to new connection
-		current_progress = progress_store.get_progress(execution_id)
-		if current_progress:
-			for task_progress in current_progress.values():
-				await websocket.send_json({
-					"type": "progress",
-					"data": {
-						"task_id": task_progress.task_id,
-						"percentage": task_progress.percentage,
-						"timestamp": task_progress.timestamp,
-						"status": task_progress.status
-					}
-				})
+		execution_status = progress_store.get_executions()
+		import time
+		await websocket.send_json({
+			"type": "execution",
+			"timestamp": time.time(),
+			"executions": [v.model_dump() for v in execution_status.values()]
+		})
+		for status in execution_status.values():
+			progress = progress_store.get_progress(status.execution_id)
+			await websocket.send_json({
+				"type": "task",
+                "timestamp": time.time(),
+                "execution_id": status.execution_id,
+                "tasks": {k: v.model_dump() for k, v in progress.items()}
+			})
 
 		# Keep connection alive
 		while True:
 			await websocket.receive_text()
 	except WebSocketDisconnect:
-		websocket_manager.disconnect(websocket, execution_id)
-		logging.info(f"WebSocket disconnected for execution {execution_id}")
+		websocket_manager.disconnect(websocket)
+		logging.info(f"WebSocket disconnected for execution progress.")
+
+@app.get("/executions", response_model=List[ExecutionStatus])
+async def list_executions():
+	"""List all executions."""
+	try:
+		executions = progress_store.get_executions()
+		return list(executions.values())
+	except Exception as e:
+		raise HTTPException(status_code=500, detail=f"Failed to list executions: {str(e)}")
 
 @app.get("/executions/{execution_id}", response_model=ExecutionStatus)
 async def get_execution_status(execution_id: str):
 	"""Get specific execution status."""
 	try:
+		executions = progress_store.get_executions()
 		if execution_id not in executions:
 			raise HTTPException(status_code=404, detail=f"Execution '{execution_id}' not found")
 
@@ -560,29 +407,21 @@ async def get_execution_status(execution_id: str):
 	except Exception as e:
 		raise HTTPException(status_code=500, detail=f"Failed to get execution status: {str(e)}")
 
-@app.get("/executions", response_model=List[ExecutionStatus])
-async def list_executions():
-	"""List all executions."""
-	try:
-		return list(executions.values())
-	except Exception as e:
-		raise HTTPException(status_code=500, detail=f"Failed to list executions: {str(e)}")
 
 # Health check
 @app.get("/health")
 async def health_check():
-    """Health check endpoint."""
-    return {
-        "status": "healthy",
-        "nodes_registered": len(NodeRegistry._registry),
-        "workflows_saved": len(list(WORKFLOWS_DIR.glob("*.json"))),
-        "worker_queue_available": workflow_queue is not None
-    }
+	"""Health check endpoint."""
+	return {
+		"status": "healthy",
+		"nodes_registered": len(NodeRegistry._registry),
+		"workflows_saved": len(list(WORKFLOWS_DIR.glob("*.json"))),
+		"worker_queue_available": workflow_queue is not None
+	}
 
 def run_server(host="0.0.0.0", port=8000):
-    """Run the FastAPI server."""
-    import uvicorn
-    uvicorn.run(app, host=host, port=port)
+	"""Run the FastAPI server."""
+	uvicorn.run(app, host=host, port=port)
 
 if __name__ == "__main__":
-    run_server()
+	run_server()

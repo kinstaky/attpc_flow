@@ -6,15 +6,55 @@ Handles progress data storage and WebSocket broadcasting.
 import threading
 import time
 import logging
-from typing import Dict, List, Any, Optional, Callable
-from dataclasses import dataclass
+from typing import Dict, List, Optional, Callable, Any
+from pydantic import BaseModel, Field
+from typing import Literal
+from multiprocessing import Queue
+from datetime import datetime, timezone
 
-@dataclass
-class TaskProgress:
+# Global workflow queue for multiprocessing
+workflow_queue: Optional[Queue] = None
+
+def init_workflow_queue(queue: Queue):
+    """Initialize the global workflow queue."""
+    global workflow_queue
+    workflow_queue = queue
+
+class TaskProgress(BaseModel):
     task_id: str
-    percentage: float
+    percentage: int
     timestamp: float
-    status: str = "running"
+    status: Literal["running", "failed", "completed"]
+
+class ExecutionStatus(BaseModel):
+    execution_id: str
+    workflow_id: str
+    status: Literal["waiting", "running", "completed", "failed"]
+    started_at: Optional[float] = None
+    completed_at: Optional[float] = None
+    completed_tasks: int = 0
+    total_tasks: int = 0
+
+class TaskPort(BaseModel):
+    name: str
+    link_task: int = -1
+    link_port: int = -1
+    value: Any
+
+class Task(BaseModel):
+    id: int
+    name: str
+    inputs: List[TaskPort] = Field(default_factory=list)
+    properties: List[TaskPort] = Field(default_factory=list)
+    waiting: List[int] = Field(default_factory=list)
+
+class ExecuteWorkflow(BaseModel):
+    execution_id: str
+    workflow_name: str
+    workspace: str
+    threads: int
+    run_list: List[int] = Field(default_factory=list)
+    tasks: List[Task] = Field(default_factory=list)
 
 class ProgressStore:
     """Thread-safe progress store with WebSocket broadcasting capability."""
@@ -35,99 +75,325 @@ class ProgressStore:
             return
 
         self._initialized = True
-        self.data: Dict[str, Dict[str, TaskProgress]] = {}  # {execution_id: {task_id: TaskProgress}}
-        self.websocket_callbacks: Dict[str, List[Callable]] = {}  # {execution_id: [callbacks]}
+        self.executions: Dict[str, ExecutionStatus] = {}  # {execution_id: ExecutionStatus}
+        self.tasks: Dict[str, Dict[str, TaskProgress]] = {}  # {task_id: [TaskProgress]}
+        self.websocket_callbacks: List[Callable] = []  # [callbacks]
         self._data_lock = threading.Lock()
 
-    def register_websocket_callback(self, execution_id: str, callback: Callable):
+    def register_websocket_callback(self, callback: Callable):
         """Register a WebSocket callback for progress updates."""
         with self._data_lock:
-            if execution_id not in self.websocket_callbacks:
-                self.websocket_callbacks[execution_id] = []
-            self.websocket_callbacks[execution_id].append(callback)
+            self.websocket_callbacks.append(callback)
 
-    def unregister_websocket_callback(self, execution_id: str, callback: Callable):
+    def unregister_websocket_callback(self, callback: Callable):
         """Unregister a WebSocket callback."""
         with self._data_lock:
-            if execution_id in self.websocket_callbacks:
-                try:
-                    self.websocket_callbacks[execution_id].remove(callback)
-                except ValueError:
-                    pass  # Callback already removed
+            try:
+                self.websocket_callbacks[id].remove(callback)
+            except ValueError:
+                pass  # Callback already removed
 
-    def update_progress(self, execution_id: str, task_id: str, percentage: float):
-        """Update progress for a task and notify WebSocket subscribers."""
+    def start_task(self, execution_id: str, task_id: str):
+        """Start a task and notify WebSocket subscribers."""
         with self._data_lock:
             # Initialize execution data if needed
-            if execution_id not in self.data:
-                self.data[execution_id] = {}
+            if execution_id not in self.executions:
+                return
+            if execution_id not in self.tasks:
+                self.tasks[execution_id] = {}
+
+            # Check if task already exists
+            if task_id in self.tasks[execution_id]:
+                return
+
+            # Create new task progress with 0% and running status
+            progress = TaskProgress(
+                task_id=task_id,
+                percentage=0,
+                timestamp=time.time(),
+                status="running"
+            )
+            self.tasks[execution_id][task_id] = progress
+
+            # Notify WebSocket subscribers
+            self._notify_subscribers({
+                "type": "task",
+                "timestamp": progress.timestamp,
+                "execution_id": execution_id,
+                "tasks": {k: v.model_dump() for k, v in self.tasks[execution_id].items()}
+            })
+
+            logging.debug(f"Started task: {execution_id}:{task_id}")
+
+    def update_task_progress(self, execution_id: str, task_id: str, percentage: int):
+        """Update progress for a running task and notify WebSocket subscribers."""
+        with self._data_lock:
+            # Initialize execution data if needed
+            if execution_id not in self.tasks:
+                self.tasks[execution_id] = {}
+                logging.info(f"Initialized progress tracking for execution {execution_id}")
+
+            # Check if task exists and handle progress logic
+            if task_id not in self.tasks[execution_id]:
+                progress = TaskProgress(
+                    task_id=task_id,
+                    percentage=0,
+                    timestamp=time.time(),
+                    status="running"
+                )
+                self.tasks[execution_id][task_id] = progress
+
+            # Clamp percentage to valid range
+            percentage = max(0, min(percentage, 100))
+
+            progress = self.tasks[execution_id][task_id]
+            if progress.status != "running" or percentage < progress.percentage:
+                return  # Don't update future progress
 
             # Update task progress
-            status = "completed" if percentage >= 100 else "running"
             progress = TaskProgress(
                 task_id=task_id,
                 percentage=percentage,
                 timestamp=time.time(),
-                status=status
+                status="running"
             )
-            self.data[execution_id][task_id] = progress
+
+            self.tasks[execution_id][task_id] = progress
 
             # Notify WebSocket subscribers
-            if execution_id in self.websocket_callbacks:
-                message = {
-                    "type": "progress",
-                    "data": {
-                        "task_id": task_id,
-                        "percentage": percentage,
-                        "timestamp": progress.timestamp,
-                        "status": status
-                    }
-                }
+            self._notify_subscribers({
+                "type": "task",
+                "timestamp": progress.timestamp,
+                "execution_id": execution_id,
+                "tasks": {k: v.model_dump() for k, v in self.tasks[execution_id].items()}
+            })
 
-                # Remove dead callbacks
-                dead_callbacks = []
-                for callback in self.websocket_callbacks[execution_id]:
-                    try:
-                        callback(message)
-                    except Exception as e:
-                        logging.error(f"WebSocket callback failed: {e}")
-                        dead_callbacks.append(callback)
+            logging.debug(f"Updated task progress: {execution_id}:{task_id} -> {percentage}%")
 
-                for callback in dead_callbacks:
-                    self.websocket_callbacks[execution_id].remove(callback)
-
-    def mark_execution_complete(self, execution_id: str):
-        """Mark an execution as complete and notify subscribers."""
+    def finish_task(self, execution_id: str, task_id: str, failed=False):
+        """Finish a task and notify WebSocket subscribers."""
         with self._data_lock:
-            if execution_id in self.websocket_callbacks:
-                message = {
-                    "type": "completion",
-                    "timestamp": time.time()
-                }
+            # Initialize execution data if needed
+            if execution_id not in self.tasks:
+                self.tasks[execution_id] = {}
+                logging.info(f"Initialized progress tracking for execution {execution_id}")
 
-                dead_callbacks = []
-                for callback in self.websocket_callbacks[execution_id]:
-                    try:
-                        callback(message)
-                    except Exception as e:
-                        logging.error(f"WebSocket callback failed: {e}")
-                        dead_callbacks.append(callback)
+            # Create or update task progress with 100% and completed status
+            progress = TaskProgress(
+                task_id=task_id,
+                percentage=100,
+                timestamp=time.time(),
+                status="failed" if failed else "completed"
+            )
 
-                for callback in dead_callbacks:
-                    self.websocket_callbacks[execution_id].remove(callback)
+            self.tasks[execution_id][task_id] = progress
+
+            # Notify WebSocket subscribers
+            self._notify_subscribers({
+                "type": "task",
+                "timestamp": progress.timestamp,
+                "execution_id": execution_id,
+                "tasks": {k: v.model_dump() for k, v in self.tasks[execution_id].items()}
+            })
+
+            logging.debug(f"Finished task: {execution_id}:{task_id}")
+
+    def start_execution(self, execution_id: str, total_tasks: int):
+        """Start an execution and notify WebSocket subscribers."""
+        with self._data_lock:
+            # Initialize execution data if needed
+            if execution_id not in self.executions:
+                return
+
+            # Store execution metadata with 0 completed tasks
+            status = self.executions[execution_id]
+            status.total_tasks = total_tasks
+            status.started_at = time.time()
+
+            # Notify subscribers about execution start
+            self._notify_subscribers({
+                "type": "execution",
+                "timestamp": time.time(),
+                "executions": [v.model_dump() for v in self.executions.values()]
+            })
+
+            logging.info(f"Started execution {execution_id} with {total_tasks} tasks")
+
+    def update_execution_progress(self, execution_id: str, completed_tasks: int, total_tasks: int):
+        """Update execution progress and notify WebSocket subscribers."""
+        with self._data_lock:
+            # Initialize execution data if needed
+            if execution_id not in self.executions:
+                return
+
+            # Clamp values to valid range
+            completed_tasks = max(0, min(completed_tasks, total_tasks))
+
+            # Store execution metadata
+            status = self.executions[execution_id]
+            status.completed_tasks = completed_tasks
+            status.total_tasks = total_tasks
+
+            # Notify subscribers about execution progress
+            self._notify_subscribers({
+                "type": "execution",
+                "timestamp": time.time(),
+                "executions": [v.model_dump() for v in self.executions.values()]
+            })
+
+            logging.debug(f"Updated execution progress: {execution_id} -> {completed_tasks}/{total_tasks}")
+
+    def finish_execution(self, execution_id: str, total_tasks: int):
+        """Finish an execution and notify WebSocket subscribers."""
+        with self._data_lock:
+            # Initialize execution data if needed
+            if execution_id not in self.executions:
+                return
+
+            # Update execution metadata
+            status = self.executions[execution_id]
+            status.completed_tasks = total_tasks
+            status.total_tasks = total_tasks
+            status.completed_at = time.time()
+            status.status = "completed"
+
+            # Notify subscribers about execution completion
+            self._notify_subscribers({
+                "type": "execution_complete",
+                "execution_id": execution_id,
+                "timestamp": time.time(),
+                "executions": [v.model_dump() for v in self.executions.values()]
+            })
+
+            logging.info(f"Finished execution {execution_id} with {total_tasks} tasks")
+
+    def _notify_subscribers(self, message: dict):
+        """Notify all WebSocket subscribers for an execution."""
+        dead_callbacks = []
+        for callback in self.websocket_callbacks:
+            try:
+                callback(message)
+            except Exception as e:
+                logging.error(f"Failed to notify subscriber: {e}")
+                dead_callbacks.append(callback)
+
+        # Remove failed callbacks
+        for callback in dead_callbacks:
+            self.unregister_websocket_callback(callback)
+
+    def create_execution(self, workflow: "Workflow") -> ExecutionStatus:
+        from .server import Workflow  # Local import to avoid circular dependency
+        with self._data_lock:
+            import uuid
+            execution_id = str(uuid.uuid4())
+            status = ExecutionStatus(
+                execution_id=execution_id,
+                workflow_id=workflow.name,
+                status="waiting",
+            )
+            self.executions[execution_id] = status
+
+            # adapt workflow
+            adapted_workflow = _adapt_workflow(execution_id, workflow)
+
+            # Send validated workflow to message queue for workers
+            if workflow_queue:
+                workflow_queue.put(adapted_workflow)
+            else:
+                # Fallback: process directly if no queue available
+                status.status = "failed"
+                status.completed_at = datetime.now(timezone.utc).isoformat()
+                raise Exception("Worker queue not available")
+
+            return status
+
+    def get_executions(self) -> Dict[str, ExecutionStatus]:
+        with self._data_lock:
+            return self.executions.copy()
 
     def get_progress(self, execution_id: str) -> Dict[str, TaskProgress]:
         """Get current progress for an execution."""
         with self._data_lock:
-            return self.data.get(execution_id, {}).copy()
+            return self.tasks.get(execution_id, {}).copy()
 
     def cleanup_execution(self, execution_id: str):
         """Clean up data for a completed execution."""
         with self._data_lock:
-            if execution_id in self.data:
-                del self.data[execution_id]
+            if execution_id in self.executions:
+                del self.executions[execution_id]
+            if execution_id in self.tasks:
+                del self.tasks[execution_id]
             if execution_id in self.websocket_callbacks:
                 del self.websocket_callbacks[execution_id]
+
+def _parse_property_value(prop: Dict[str, str]):
+    """Parse property value based on its type."""
+    result = None
+    if "type" in prop:
+        match prop["type"]:
+            case "integer":
+                result = int(prop["value"])
+            case "float":
+                result = float(prop["value"])
+            case "bool":
+                result = bool(prop["value"])
+            case "str":
+                result = prop["value"]
+    return result
+
+def _adapt_workflow(execution_id: str, workflow):
+    """Adapt workflow to execution task."""
+    execution_workflow = ExecuteWorkflow(
+        execution_id=execution_id,
+        workflow_name=workflow.name,
+        workspace=workflow.workspace,
+        threads=workflow.workers,
+        run_list=workflow.run_list,
+    )
+    id_map = {}
+    # loop nodes
+    for idx, node in enumerate(workflow.nodes):
+        id_map[node.id] = idx
+        task = Task(
+            id=idx,
+            name=node.name,
+        )
+        for inp in node.inputs:
+            exec_input = TaskPort(
+                name=inp["name"],
+                value=None,
+            )
+            task.inputs.append(exec_input)
+        for prop in node.properties:
+            exec_prop = TaskPort(
+                name=prop["name"],
+                value=None,
+            )
+            # parse property value
+            try:
+                value = _parse_property_value(prop)
+            except Exception:
+                value = None
+            exec_prop.value = value
+            task.properties.append(exec_prop)
+        execution_workflow.tasks.append(task)
+
+    # loop links
+    for idx, link in enumerate(workflow.links):
+        source_id = id_map[link.source]
+        source_pid = int(link.sourceHandle.split("-")[1])
+        target_task = execution_workflow.tasks[id_map[link.target]]
+        target_pid = int(link.targetHandle.split("-")[1])
+
+        if link.targetHandle.startswith("property-"):
+            target_port = target_task.properties[target_pid]
+        else:
+            target_port = target_task.inputs[target_pid]
+        target_port.link_task = source_id
+        target_port.link_port = source_pid
+        target_task.waiting.append(source_id)
+
+    return execution_workflow
 
 # Global singleton instance
 progress_store = ProgressStore()

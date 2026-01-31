@@ -58,7 +58,7 @@ class ATFlowManager:
         if collector_type == "store" and execution_id:
             zmq_collector_store(4, execution_id)  # max_workers = 4
         else:
-            zmq_collector_tqdm(4)  # max_workers = 4
+            zmq_collector_tqdm()  # No longer needs max_workers
 
     def start_full_system(self, host="0.0.0.0", port=8000, collector_type="tqdm"):
         """Start the complete system: server + collector + worker."""
@@ -71,7 +71,7 @@ class ATFlowManager:
         self.workflow_queue = mp.Queue()
 
         # Initialize server with queue
-        from .server import init_workflow_queue
+        from .progress_store import init_workflow_queue
         init_workflow_queue(self.workflow_queue)
 
         # Start collector thread
@@ -82,7 +82,6 @@ class ATFlowManager:
             # For terminal, start tqdm collector
             collector_thread = threading.Thread(
                 target=zmq_collector_tqdm,
-                args=(4,),  # max_workers
                 daemon=True
             )
             collector_thread.start()

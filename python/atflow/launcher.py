@@ -4,31 +4,63 @@ Lightweight alternative to the manager class.
 """
 
 import multiprocessing as mp
-import signal
-import sys
 import threading
 import logging
 import zmq
 
 from .processor import Processor
 from .collector import zmq_collector_tqdm, zmq_collector_store
+from .nodes import *
 
 # Configure ONE global colorful handler for all processes
 import colorlog
-handler = colorlog.StreamHandler()
-handler.setFormatter(colorlog.ColoredFormatter(
-	'%(log_color)s%(levelname)s:%(reset)s     %(message)s',
-	log_colors={
-		'DEBUG': 'cyan',
-		'INFO': 'green',
-		'WARNING': 'yellow',
-		'ERROR': 'red',
-		'CRITICAL': 'magenta',
-	}
-))
+
+class AlignedFormatter(logging.Formatter):
+    """Custom formatter that aligns all log levels perfectly with colors."""
+
+    def __init__(self, log_colors=None):
+        super().__init__()
+        self.log_colors = log_colors or {}
+        self.color_codes = {
+            'DEBUG': '\033[36m',    # cyan
+            'INFO': '\033[32m',     # green
+            'WARNING': '\033[33m',  # yellow
+            'ERROR': '\033[31m',    # red
+            'CRITICAL': '\033[35m', # magenta
+        }
+        self.reset_code = '\033[0m'
+
+    def format(self, record):
+        level_name = record.levelname
+
+        # Apply colors
+        color = self.color_codes.get(level_name, '')
+        reset = self.reset_code if color else ''
+
+        # Normalize all levels to match uvicorn's format exactly
+        if level_name == 'INFO':
+            level_display = f"{color}INFO{reset}:     "
+        elif level_name == 'DEBUG':
+            level_display = f"{color}DEBUG{reset}:    "
+        elif level_name == 'ERROR':
+            level_display = f"{color}ERROR{reset}:    "
+        elif level_name == 'WARNING':
+            level_display = f"{color}WARNING{reset}:  "
+        elif level_name == 'CRITICAL':
+            level_display = f"{color}CRITICAL{reset}: "
+        else:
+            level_display = f"{color}{level_name}{reset}:"
+
+        message = record.getMessage()
+        return f"{level_display}{message}"
+
+handler = logging.StreamHandler()
+formatter = AlignedFormatter()
+formatter.ALIGN = True
+handler.setFormatter(formatter)
 
 logging.basicConfig(
-	level=logging.INFO,
+	level=logging.DEBUG,
 	handlers=[handler],
 	force=True  # Override any existing config
 )
@@ -41,8 +73,8 @@ def send_terminal_message():
 	ctx = zmq.Context()
 	publisher = ctx.socket(zmq.PUSH)
 	publisher.connect("ipc://@attpc_flow_zmq")
-	publisher.send(b"-1")
-	logger.debug(f"Sent terminal message: {b'-1'}")
+	publisher.send_string("termination")
+	logger.debug("Sent terminal message: termination")
 
 def start_server(host="0.0.0.0", port=8000):
 	"""Start ATTPC Flow server only."""
@@ -86,7 +118,7 @@ def start_full_system(host="0.0.0.0", port=8000):
 
 		logger.debug("Shutting down threads")
 		# Don't wait for daemon threads - they'll be killed automatically
-		for name, thread in threads.items():
+		for _name, thread in threads.items():
 			if thread.is_alive() and not thread.daemon:
 				try:
 					thread.join(timeout=1)
@@ -108,14 +140,6 @@ def start_full_system(host="0.0.0.0", port=8000):
 					execution_id = workflow_data.execution_id
 					worker_logger.info(f"Processing execution {execution_id}")
 
-					# Update execution status
-					from .server import executions
-					from datetime import datetime, timezone
-
-					if execution_id in executions:
-						executions[execution_id].started_at = datetime.now(timezone.utc).isoformat()
-						executions[execution_id].status = "running"
-
 					# Run workflow
 					Processor.run(
 						threads=workflow_data.threads,
@@ -128,9 +152,6 @@ def start_full_system(host="0.0.0.0", port=8000):
 					)
 
 					# Update status
-					if execution_id in executions:
-						executions[execution_id].status = "completed"
-						executions[execution_id].completed_at = datetime.now(timezone.utc).isoformat()
 					worker_logger.info(f"Completed execution {execution_id}")
 
 				except mp.queues.Empty:
@@ -148,7 +169,7 @@ def start_full_system(host="0.0.0.0", port=8000):
 		workflow_queue = mp.Queue()
 
 		# Initialize server
-		from .server import init_workflow_queue
+		from .progress_store import init_workflow_queue
 		init_workflow_queue(workflow_queue)
 
 		collector_thread = threading.Thread(target=zmq_collector_store)

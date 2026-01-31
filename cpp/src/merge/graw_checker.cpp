@@ -60,7 +60,8 @@ CheckGrawResult GrawChecker::Check() {
 
 	// report start if progress reporter is available
 	if (progress_reporter_) {
-		progress_reporter_->report_progress(0);
+		progress_reporter_->ReportStart();
+		progress_reporter_->ReportProgress(0);
 	}
 
 	// check size
@@ -81,13 +82,14 @@ CheckGrawResult GrawChecker::Check() {
 		// report progress if progress reporter is available
 		if (progress_reporter_ && total_size_ > 0) {
 			int percentage = static_cast<int>(check_size * 100.0 / total_size_);
-			progress_reporter_->report_progress(percentage);
+			progress_reporter_->ReportProgress(percentage);
 		}
 	}
 
 	// report completion if progress reporter is available
 	if (progress_reporter_) {
-		progress_reporter_->report_progress(100);
+		progress_reporter_->ReportProgress(100);
+		progress_reporter_->ReportFinish();
 	}
 
 	CheckEventId(start_event_, result);

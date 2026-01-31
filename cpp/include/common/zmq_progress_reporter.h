@@ -18,11 +18,17 @@ public:
 	ZmqProgressReporter(std::string execution_id, int task_id, const std::string &endpoint);
 
 	/// @brief Destructor
-	~ZmqProgressReporter();
+	virtual ~ZmqProgressReporter() override = default;
+
+	/// @brief Report the start of a task via ZeroMQ
+	virtual void ReportStart() override;
 
 	/// @brief Report progress percentage via ZeroMQ
 	/// @param[in] percentage Progress percentage (0-100)
-	void report_progress(int percentage);
+	virtual void ReportProgress(int percentage) override;
+
+	/// @brief Report the finish of a task via ZeroMQ
+	virtual void ReportFinish() override;
 
 	// Delete copy constructor and assignment operator
 	ZmqProgressReporter(const ZmqProgressReporter &) = delete;

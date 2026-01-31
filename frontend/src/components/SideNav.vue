@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, inject } from 'vue'
+import { ref, onMounted, inject, computed } from 'vue'
 import { useTheme } from 'vuetify'
 import {
   addNewTab,
@@ -11,6 +11,7 @@ import {
   updateActiveWorkflow
 } from '../stores/tabs'
 import { getWorkflow, listWorkflows } from '../api/workflow'
+import ExecutionProgressPanel from './ExecutionProgressPanel.vue'
 import type { NodePort, NodeProperty, NodeData } from '../types/nodes'
 
 // Inject error handler from parent
@@ -20,8 +21,17 @@ const showError = inject<(message: string) => void>('showError', (msg: string) =
 
 const theme = useTheme()
 const isDark = ref(true)
-const showNodesPanel = ref(false)
-const showWorkflowsPanel = ref(false)
+const showPanel = ref("")
+
+// Helper function to create panel computed properties
+const createPanelComputed = (panelType: string) => computed({
+  get: () => showPanel.value === panelType,
+  set: (val) => showPanel.value = val ? panelType : ""
+})
+
+const showNodesPanel = createPanelComputed("nodes")
+const showWorkflowsPanel = createPanelComputed("workflows")
+const showProgressPanel = createPanelComputed("progress")
 const showMenu = ref(false)
 const nodeCategories = ref<Record<string, string[]>>({})
 const workflows = ref<string[]>([])
@@ -31,28 +41,26 @@ const toggleTheme = () => {
   theme.global.name.value = isDark.value ? 'dark' : 'light'
 }
 
-const openNodesLibrary = async () => {
-  showNodesPanel.value = !showNodesPanel.value
-  showWorkflowsPanel.value = false
+// Generic panel opener with optional refresh
+const openPanel = async (panelType: 'nodes' | 'workflows' | 'progress', refreshFn?: () => Promise<void>) => {
+  showPanel.value = showPanel.value === panelType ? "" : panelType
 
-  // Always refresh nodes when opening the panel
-  if (showNodesPanel.value) {
-    await fetchNodes()
+  // Always refresh data when opening the panel
+  if (showPanel.value === panelType && refreshFn) {
+    await refreshFn()
   }
+}
 
-  console.log('Toggle nodes library panel')
+const openNodesLibrary = async () => {
+  await openPanel('nodes', fetchNodes)
 }
 
 const openWorkflows = async () => {
-  showWorkflowsPanel.value = !showWorkflowsPanel.value
-  showNodesPanel.value = false
+  await openPanel('workflows', fetchWorkflows)
+}
 
-  // Always refresh workflows when opening the panel
-  if (showWorkflowsPanel.value) {
-    await fetchWorkflows()
-  }
-
-  console.log('Toggle workflows panel')
+const openProgress = async () => {
+  await openPanel('progress') // No refresh needed - component handles it
 }
 
 const openSettings = () => {
@@ -166,10 +174,9 @@ const openWorkflow = async (workflowName: string) => {
     saveTab(targetTabId)
 
     console.log('Opened workflow:', workflowName, 'in tab:', targetTabId)
-    // console.log('Workflow data:', workflowData)
 
     // Close the workflows submenu
-    showWorkflowsPanel.value = false
+    showPanel.value = ""
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Failed to open workflow'
     showError(errorMessage)
@@ -254,6 +261,16 @@ onMounted(() => {
           <v-icon>mdi-folder-open-outline</v-icon>
           <v-tooltip activator="parent" location="end">Workflows</v-tooltip>
         </v-btn>
+
+        <v-btn
+          icon
+          variant="text"
+          size="default"
+          @click="openProgress"
+        >
+          <v-icon>mdi-list-status</v-icon>
+          <v-tooltip activator="parent" location="end">Status</v-tooltip>
+        </v-btn>
       </div>
 
       <v-spacer></v-spacer>
@@ -279,7 +296,7 @@ onMounted(() => {
       >
         <v-icon>mdi-refresh</v-icon>
       </v-btn>
-      <v-btn icon variant="text" @click="showNodesPanel = false">
+      <v-btn icon variant="text" @click="showPanel = ''">
         <v-icon>mdi-close</v-icon>
       </v-btn>
     </v-toolbar>
@@ -330,7 +347,7 @@ onMounted(() => {
       >
         <v-icon>mdi-refresh</v-icon>
       </v-btn>
-      <v-btn icon variant="text" @click="showWorkflowsPanel = false">
+      <v-btn icon variant="text" @click="showPanel = ''">
         <v-icon>mdi-close</v-icon>
       </v-btn>
     </v-toolbar>
@@ -351,6 +368,11 @@ onMounted(() => {
       </v-list>
     </div>
   </v-navigation-drawer>
+
+  <!-- Progress Panel -->
+  <ExecutionProgressPanel
+    v-model:visible="showProgressPanel"
+  />
 </template>
 
 <style scoped>
@@ -399,11 +421,15 @@ onMounted(() => {
   :deep(.workflows-panel) {
     width: 240px !important;
   }
+  :deep(.status-panel) {
+    width: 400px !important;
+  }
 }
 
 @media (max-width: 480px) {
   :deep(.nodes-panel),
-  :deep(.workflows-panel) {
+  :deep(.workflows-panel),
+  :deep(.status-panel) {
     width: 100vw !important;
     left: 48px !important;
   }

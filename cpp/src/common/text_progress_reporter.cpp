@@ -5,31 +5,36 @@
 namespace atflow {
 
 TextProgressReporter::TextProgressReporter(const std::string &prefix)
-	: prefix_(prefix)
-	, first_report_(true)
-{
-}
+	: prefix_(prefix) {}
 
-TextProgressReporter::~TextProgressReporter() {
-	// Print newline on destruction to ensure final state is visible
-	if (!first_report_) {
-		std::cout << std::endl;
+void TextProgressReporter::ReportStart() {
+	if (prefix_.empty()) {
+		std::cout << "Progress: Starting task..." << std::endl;
+	} else {
+		std::cout << prefix_ << ": Starting task..." << std::endl;
 	}
 }
 
-void TextProgressReporter::report_progress(int percentage) {
+void TextProgressReporter::ReportProgress(int percentage) {
 	if (percentage < 0) percentage = 0;
 	if (percentage > 100) percentage = 100;
 
-	if (first_report_) first_report_ = false;
-	else std::cout << "\r";
-
+	std::cout << "\r";
 	if (prefix_.empty()) {
 		std::cout << "Progress: " << std::setw(3) << percentage << "%";
 	} else {
 		std::cout << prefix_ << ": " << std::setw(3) << percentage << "%";
 	}
 	std::cout << std::flush;
+}
+
+void TextProgressReporter::ReportFinish() {
+	std::cout << "\r";
+	if (prefix_.empty()) {
+		std::cout << "Progress: Task completed" << std::endl;
+	} else {
+		std::cout << prefix_ << ": Task completed" << std::endl;
+	}
 }
 
 }

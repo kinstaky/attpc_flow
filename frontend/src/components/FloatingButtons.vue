@@ -32,6 +32,7 @@ import {
   workflowNameExists,
   executeWorkflow,
 } from '../api/workflow'
+import { useProgressWebSocket } from '../composables/useWebSocket'
 
 // Inject error handler from parent
 const showError = inject<(message: string) => void>('showError', (msg: string) => {
@@ -48,6 +49,10 @@ const isEditingWorkspace = ref(false)
 const workspaceInput = ref<HTMLInputElement>()
 const workersCount = ref(activeWorkers.value)
 const isEditingWorkers = ref(false)
+const isExecuting = ref(false)
+
+// WebSocket management
+const { connect } = useProgressWebSocket()
 const workersInput = ref<HTMLInputElement>()
 const renameError = ref('')
 const existingWorkflows = ref<string[]>([])
@@ -410,19 +415,42 @@ const runWorkflow = async () => {
       return
     }
 
-    // Step 2: Execute the workflow
-    const finalWorkflowName = activeTabName.value
-    if (!finalWorkflowName) {
+    // Step 3: Execute the workflow
+    const workflowName = activeTabName.value
+    if (!workflowName) {
       showError('Failed to save workflow before execution')
       return
     }
 
-    console.log(`Executing workflow: ${finalWorkflowName}`)
-    const executionStatus = await executeWorkflow(finalWorkflowName)
+    // Set executing state
+    isExecuting.value = true
+
+    console.log(`Executing workflow: ${workflowName}`)
+    const executionStatus = await executeWorkflow(workflowName)
     console.log('Workflow execution started:', executionStatus)
+
+    // Connect to WebSocket for completion notification
+    connect("startBtn", {
+      onExecutionComplete: (execution_id: string) => {
+        if (execution_id != executionStatus.execution_id) {
+          return
+        }
+        // Handle completion
+        console.log('Execution completed')
+        isExecuting.value = false
+      },
+      onError: (error: Event) => {
+        console.error('WebSocket error:', error)
+        // Reset executing state on WebSocket error
+        isExecuting.value = false
+      }
+    })
+
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Failed to save or execute workflow'
     showError(errorMessage)
+    // Reset executing state on error
+    isExecuting.value = false
   }
 }
 
@@ -676,9 +704,15 @@ watch(activeWorkflow, (newWorkflow) => {
       </v-menu>
 
       <!-- Run Button -->
-      <v-btn variant="flat" color="primary" @click="runWorkflow">
-        <v-icon start>mdi-play</v-icon>
-        Start
+      <v-btn
+        variant="flat"
+        color="primary"
+        @click="runWorkflow"
+        :disabled="isExecuting"
+        :loading="isExecuting"
+      >
+        <v-icon start>{{ isExecuting ? 'mdi-loading' : 'mdi-play' }}</v-icon>
+        {{ isExecuting ? 'Processing...' : 'Start' }}
       </v-btn>
     </div>
 

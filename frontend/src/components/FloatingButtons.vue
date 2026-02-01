@@ -709,11 +709,11 @@ watch(activeWorkflow, (newWorkflow) => {
         color="primary"
         @click="runWorkflow"
         :disabled="isExecuting"
-        :loading="isExecuting"
       >
-        <v-icon start>{{ isExecuting ? 'mdi-loading' : 'mdi-play' }}</v-icon>
+        <v-icon start v-show="!isExecuting">{{ 'mdi-play' }}</v-icon>
         {{ isExecuting ? 'Processing...' : 'Start' }}
       </v-btn>
+      <v-progress-circular color="primary" indeterminate class="mt-2" v-show="isExecuting"></v-progress-circular>
     </div>
 
     <!-- Workflow Name Dialog -->

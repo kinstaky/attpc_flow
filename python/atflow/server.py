@@ -419,9 +419,14 @@ async def health_check():
 		"worker_queue_available": workflow_queue is not None
 	}
 
-def run_server(host="0.0.0.0", port=8000):
+def run_server(host="0.0.0.0", port=8000, reload=False):
 	"""Run the FastAPI server."""
-	uvicorn.run(app, host=host, port=port)
+	if reload:
+		# Use import string for reload mode
+		uvicorn.run("atflow.server:app", host=host, port=port, reload=reload)
+	else:
+		# Use direct app reference for non-reload mode
+		uvicorn.run(app, host=host, port=port, reload=reload)
 
 if __name__ == "__main__":
 	run_server()

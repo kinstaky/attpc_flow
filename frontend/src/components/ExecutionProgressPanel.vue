@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch } from 'vue'
-import { useProgressWebSocket } from '../composables/useWebSocket'
 import { listExecutions } from '../api/workflow'
-import { ExecutionStatus, TaskProgress } from '../composables/useWebSocket'
+import {
+  useProgressWebSocket,
+  ExecutionStatus,
+  TaskProgress,
+} from '../composables/useWebSocket'
 
 const props = defineProps<{
   visible: boolean
@@ -15,7 +18,7 @@ const emit = defineEmits<{
 const executions = ref<Array<ExecutionStatus>>([])
 const tasks = ref<Record<string, Record<string, TaskProgress>>>({})
 const loading = ref(false)
-const expanded = ref<Record<string, boolean>>({})
+const opened = ref<Array<string>>([])
 const error = ref<string | null>(null)
 
 // WebSocket management
@@ -54,11 +57,8 @@ const fetchExecutions = async () => {
     loading.value = true
     error.value = null
     executions.value = await listExecutions()
-    executions.value.forEach(execution => {
-      expanded.value[execution.execution_id] = false
-    })
     console.log(executions.value)
-    console.log(expanded.value)
+    console.log(opened.value)
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Failed to fetch executions'
     console.error('Failed to fetch executions:', err)
@@ -92,9 +92,7 @@ const getTaskProgressColor = (percentage: number) => {
   // Use array-based approach for progress thresholds
   const thresholds = [
     { min: 100, color: 'success' },
-    { min: 50, color: 'primary' },
-    { min: 1, color: 'warning' },
-    { min: 0, color: 'grey' }
+    { min: 0, color: 'info' },
   ]
 
   return thresholds.find(threshold => percentage >= threshold.min)?.color || 'grey'
@@ -171,95 +169,82 @@ onUnmounted(() => {
       </div>
 
       <!-- Executions list -->
-      <v-list density="compact" nav v-if="executions.length > 0">
-        <v-list-item
+      <v-list
+        :opened="opened"
+        density="compact"
+        v-if="executions.length > 0"
+      >
+        <v-list-group
           v-for="status in executions"
+          :value="status.execution_id"
           :key="status.execution_id"
-          class="execution-item"
         >
-          <template v-slot:prepend>
-            <v-icon :color="getStatusConfig(status.status).color">
-              {{ getStatusConfig(status.status).icon }}
-            </v-icon>
-          </template>
-
-          <v-list-item-title>
-            {{ status.execution_id }}
-            <v-chip
-              :color="getStatusConfig(status.status).color"
-              size="x-small"
-              class="ml-2"
+          <template #activator="{ props }">
+            <v-list-item
+              v-bind="props"
+              class="execution-item"
             >
-              {{ status.status }}
-            </v-chip>
-          </v-list-item-title>
+              <template v-slot:prepend>
+                <v-icon :color="getStatusConfig(status.status).color">
+                  {{ getStatusConfig(status.status).icon }}
+                </v-icon>
+              </template>
 
-          <v-list-item-subtitle>
-            {{ status.workflow_id }} • {{ formatTime(status.started_at) }}
-            <span v-if="status.status == 'completed' || status.status == 'failed'">
-              • {{ formatTime(status.completed_at) }}
-            </span>
-            • {{ status.completed_tasks }}/{{ status.total_tasks }} tasks
-          </v-list-item-subtitle>
-
-          <!-- Progress bar for execution -->
-          <div class="mt-2">
-            <v-progress-linear
-              :model-value="getExecutionProgress(status)"
-              :color="getStatusConfig(status.status).color"
-              height="4"
-            />
-          </div>
-
-          <!-- Expandable task details -->
-          <template v-slot:append>
-            <v-btn
-              icon
-              variant="text"
-              size="small"
-              @click.stop="expanded[status.execution_id] = !expanded[status.execution_id]"
-            >
-              <v-icon>mdi-chevron-{{ expanded[status.execution_id] ? 'up' : 'down' }}</v-icon>
-            </v-btn>
-          </template>
-
-          <!-- Task details expansion -->
-          <v-expand-transition>
-            <div
-              v-if="expanded[status.execution_id] && tasks[status.execution_id]"
-              class="task-details mt-2"
-            >
-              <v-divider class="mb-2" />
-              <div class="text-subtitle-2 mb-2">Task Progress</div>
-
-              <div
-                v-if="Object.keys(tasks[status.execution_id]).length === 0"
-                class="text-grey text-body-2"
-              >
-                No tasks running yet
-              </div>
-
-              <div v-else class="task-list">
-                <div
-                  v-for="(progress, taskId) in tasks[status.execution_id]"
-                  :key="taskId"
-                  class="task-item mb-2"
+              <v-list-item-title>
+                {{ status.execution_id }}
+                <v-chip
+                  :color="getStatusConfig(status.status).color"
+                  size="x-small"
+                  class="ml-2"
                 >
-                  <div class="d-flex align-center justify-space-between">
-                    <span class="text-body-2">Task {{ taskId }}</span>
-                    <span class="text-caption">{{ formatPercentage(progress.percentage) }}</span>
-                  </div>
-                  <v-progress-linear
-                    :model-value="progress.percentage"
-                    :color="getTaskProgressColor(progress.percentage)"
-                    height="3"
-                    class="mt-1"
-                  />
-                </div>
+                  {{ status.status }}
+                </v-chip>
+              </v-list-item-title>
+
+              <v-list-item-subtitle>
+                {{ status.workflow_id }} • {{ formatTime(status.started_at) }}
+                <span v-if="status.status == 'completed' || status.status == 'failed'">
+                  • {{ formatTime(status.completed_at) }}
+                </span>
+                • {{ status.completed_tasks }}/{{ status.total_tasks }} tasks
+              </v-list-item-subtitle>
+
+              <!-- Progress bar for execution -->
+              <div class="mt-2">
+                <v-progress-linear
+                  :model-value="getExecutionProgress(status)"
+                  :color="getStatusConfig(status.status).color"
+                  height="4"
+                />
               </div>
-            </div>
-          </v-expand-transition>
-        </v-list-item>
+            </v-list-item>
+          </template>
+          <v-list-item
+            v-for="(progress, taskId) in tasks[status.execution_id]"
+            :key="taskId"
+            class="task-item mb-2"
+          >
+            <v-list-item-title>
+              Task {{ taskId }} 
+              <v-chip
+                :color="getStatusConfig(progress.status).color"
+                size="x-small"
+                class="ml-2"
+              >
+                {{ progress.status }}
+              </v-chip>
+            </v-list-item-title>
+            <v-progress-linear
+              :model-value="progress.percentage"
+              :color="getTaskProgressColor(progress.percentage)"
+              height="3"
+              class="mt-1"
+            />
+            <template v-slot:append>
+              {{ formatPercentage(progress.percentage) }}
+            </template>
+          </v-list-item>
+        </v-list-group>
       </v-list>
     </div>
   </v-navigation-drawer>

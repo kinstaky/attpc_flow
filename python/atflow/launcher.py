@@ -7,6 +7,9 @@ import multiprocessing as mp
 import threading
 import logging
 import zmq
+import subprocess
+import os
+import argparse
 
 from .processor import Processor
 from .collector import zmq_collector_tqdm, zmq_collector_store
@@ -76,11 +79,11 @@ def send_terminal_message():
 	publisher.send_string("termination")
 	logger.debug("Sent terminal message: termination")
 
-def start_server(host="0.0.0.0", port=8000):
+def start_server(host="0.0.0.0", port=8000, reload=False):
 	"""Start ATTPC Flow server only."""
 	from .server import run_server
 	logger.info(f"Starting ATTPC Flow server on http://{host}:{port}")
-	run_server(host=host, port=port)
+	run_server(host=host, port=port, reload=reload)
 
 def start_worker():
 	"""Start worker process only."""
@@ -88,7 +91,7 @@ def start_worker():
 	workflow_queue = mp.Queue()
 	_workflow_worker(workflow_queue)
 
-def start_full_system(host="0.0.0.0", port=8000):
+def start_full_system(host="0.0.0.0", port=8000, reload=False):
 	"""Start complete ATTPC Flow system (server + worker + collector)."""
 
 	logger.info(f"Starting ATTPC Flow full system on http://{host}:{port}")
@@ -183,7 +186,7 @@ def start_full_system(host="0.0.0.0", port=8000):
 
 		# Start server in main process
 		from .server import run_server
-		run_server(host=host, port=port)
+		run_server(host=host, port=port, reload=reload)
 
 	except Exception as e:
 		logger.error(f"Unexpected error: {e}")
@@ -192,7 +195,63 @@ def start_full_system(host="0.0.0.0", port=8000):
 	_shutdown_all()
 	logger.info("Full system stopped")
 
+def start_dev_servers(host="0.0.0.0", port=8000):
+	"""Start both frontend and backend with hot reload for development."""
+	logger.info("Starting ATTPC Flow development servers...")
+	logger.info(f"Backend will be available at http://{host}:{port}")
+	logger.info("Frontend will be available at http://localhost:3000")
+
+	# Get project root directory
+	project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+	frontend_dir = os.path.join(project_root, "frontend")
+
+	try:
+		# Start backend with uvicorn reload by calling start_server directly
+		logger.info("Starting FastAPI backend with hot reload...")
+		backend_proc = mp.Process(
+			target=start_full_system,
+			kwargs={"host": host, "port": port, "reload": True}
+		)
+		backend_proc.start()
+
+		# Start frontend with Vite
+		logger.info("Starting Vite frontend with hot reload...")
+		frontend_cmd = ["pnpm", "dev", "--host"]
+		frontend_proc = subprocess.Popen(frontend_cmd, cwd=frontend_dir)
+
+		# Wait for processes
+		try:
+			backend_proc.join()
+			frontend_proc.wait()
+		except KeyboardInterrupt:
+			logger.info("Received interrupt signal, shutting down development servers...")
+			backend_proc.terminate()
+			frontend_proc.terminate()
+			backend_proc.join()
+			frontend_proc.wait()
+			logger.info("Development servers stopped")
+
+	except Exception as e:
+		logger.error(f"Failed to start development servers: {e}")
+
 # Convenience function for most common use case
-def launch(host="0.0.0.0", port=8000):
+def launch(host="0.0.0.0", port=8000, dev=False):
 	"""Launch ATTPC Flow with web UI (most common usage)."""
-	start_full_system(host=host, port=port)
+	if dev:
+		start_dev_servers(host=host, port=port)
+	else:
+		start_full_system(host=host, port=port)
+
+def main():
+	"""Main entry point for command line interface."""
+	parser = argparse.ArgumentParser(description="ATTPC Flow launcher")
+	parser.add_argument("--host", default="0.0.0.0", help="Host to bind to")
+	parser.add_argument("--port", type=int, default=8000, help="Port to bind to")
+	parser.add_argument("--dev", action="store_true", help="Start development servers with hot reload")
+
+	args = parser.parse_args()
+
+	if args.dev:
+		start_dev_servers(host=args.host, port=args.port)
+	else:
+		start_full_system(host=args.host, port=args.port)

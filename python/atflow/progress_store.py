@@ -209,6 +209,7 @@ class ProgressStore:
             status = self.executions[execution_id]
             status.total_tasks = total_tasks
             status.started_at = time.time()
+            status.status = "running"
 
             # Notify subscribers about execution start
             self._notify_subscribers({

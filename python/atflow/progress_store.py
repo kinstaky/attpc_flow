@@ -6,8 +6,9 @@ Handles progress data storage and WebSocket broadcasting.
 import threading
 import time
 import logging
-from typing import Dict, List, Optional, Callable, Any
-from pydantic import BaseModel, Field
+import multiprocessing as mp
+from typing import Dict, List, Optional, Callable
+from pydantic import BaseModel
 from typing import Literal
 from multiprocessing import Queue
 from datetime import datetime, timezone
@@ -15,10 +16,12 @@ from datetime import datetime, timezone
 # Global workflow queue for multiprocessing
 workflow_queue: Optional[Queue] = None
 
-def init_workflow_queue(queue: Queue):
-    """Initialize the global workflow queue."""
+def get_workflow_queue():
+    """Get or create the workflow queue. Survives uvicorn reloads."""
     global workflow_queue
-    workflow_queue = queue
+    if workflow_queue is None:
+        workflow_queue = mp.Queue()
+    return workflow_queue
 
 class TaskProgress(BaseModel):
     task_id: str
@@ -34,27 +37,6 @@ class ExecutionStatus(BaseModel):
     completed_at: Optional[float] = None
     completed_tasks: int = 0
     total_tasks: int = 0
-
-class TaskPort(BaseModel):
-    name: str
-    link_task: int = -1
-    link_port: int = -1
-    value: Any
-
-class Task(BaseModel):
-    id: int
-    name: str
-    inputs: List[TaskPort] = Field(default_factory=list)
-    properties: List[TaskPort] = Field(default_factory=list)
-    waiting: List[int] = Field(default_factory=list)
-
-class ExecuteWorkflow(BaseModel):
-    execution_id: str
-    workflow_name: str
-    workspace: str
-    threads: int
-    run_list: List[int] = Field(default_factory=list)
-    tasks: List[Task] = Field(default_factory=list)
 
 class ProgressStore:
     """Thread-safe progress store with WebSocket broadcasting capability."""
@@ -282,8 +264,7 @@ class ProgressStore:
         for callback in dead_callbacks:
             self.unregister_websocket_callback(callback)
 
-    def create_execution(self, workflow: "Workflow") -> ExecutionStatus:
-        from .server import Workflow  # Local import to avoid circular dependency
+    def create_execution(self, workflow) -> ExecutionStatus:
         with self._data_lock:
             import uuid
             execution_id = str(uuid.uuid4())
@@ -294,12 +275,12 @@ class ProgressStore:
             )
             self.executions[execution_id] = status
 
-            # adapt workflow
-            adapted_workflow = _adapt_workflow(execution_id, workflow)
-
             # Send validated workflow to message queue for workers
-            if workflow_queue:
-                workflow_queue.put(adapted_workflow)
+            queue = get_workflow_queue()
+            if queue:
+                queue.put(
+                    (execution_id, workflow)
+                )
             else:
                 # Fallback: process directly if no queue available
                 status.status = "failed"
@@ -327,74 +308,6 @@ class ProgressStore:
             if execution_id in self.websocket_callbacks:
                 del self.websocket_callbacks[execution_id]
 
-def _parse_property_value(prop: Dict[str, str]):
-    """Parse property value based on its type."""
-    result = None
-    if "type" in prop:
-        match prop["type"]:
-            case "integer":
-                result = int(prop["value"])
-            case "float":
-                result = float(prop["value"])
-            case "bool":
-                result = bool(prop["value"])
-            case "str":
-                result = prop["value"]
-    return result
-
-def _adapt_workflow(execution_id: str, workflow):
-    """Adapt workflow to execution task."""
-    execution_workflow = ExecuteWorkflow(
-        execution_id=execution_id,
-        workflow_name=workflow.name,
-        workspace=workflow.workspace,
-        threads=workflow.workers,
-        run_list=workflow.run_list,
-    )
-    id_map = {}
-    # loop nodes
-    for idx, node in enumerate(workflow.nodes):
-        id_map[node.id] = idx
-        task = Task(
-            id=idx,
-            name=node.name,
-        )
-        for inp in node.inputs:
-            exec_input = TaskPort(
-                name=inp["name"],
-                value=None,
-            )
-            task.inputs.append(exec_input)
-        for prop in node.properties:
-            exec_prop = TaskPort(
-                name=prop["name"],
-                value=None,
-            )
-            # parse property value
-            try:
-                value = _parse_property_value(prop)
-            except Exception:
-                value = None
-            exec_prop.value = value
-            task.properties.append(exec_prop)
-        execution_workflow.tasks.append(task)
-
-    # loop links
-    for idx, link in enumerate(workflow.links):
-        source_id = id_map[link.source]
-        source_pid = int(link.sourceHandle.split("-")[1])
-        target_task = execution_workflow.tasks[id_map[link.target]]
-        target_pid = int(link.targetHandle.split("-")[1])
-
-        if link.targetHandle.startswith("property-"):
-            target_port = target_task.properties[target_pid]
-        else:
-            target_port = target_task.inputs[target_pid]
-        target_port.link_task = source_id
-        target_port.link_port = source_pid
-        target_task.waiting.append(source_id)
-
-    return execution_workflow
 
 # Global singleton instance
 progress_store = ProgressStore()

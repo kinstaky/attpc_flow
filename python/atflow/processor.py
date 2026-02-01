@@ -5,11 +5,13 @@ Handles individual task execution and workflow orchestration.
 
 import concurrent.futures
 from enum import IntEnum
+from typing import Dict, Any
 import logging
 import zmq
 import json
 
 from .node_registry import NodeRegistry
+from .workflow import Workflow
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -35,10 +37,14 @@ def run_node(task):
 	)
 
 class Processor:
-	def __init__(self, threads, environment, tasks):
-		self.threads = threads
-		self.environment = environment
-		self._init_tasks(tasks)
+	def __init__(self, execution_id: str, workflow: Workflow):
+		self.threads = workflow.workers
+		self.environment = {
+			"execution_id": execution_id,
+			"workspace": workflow.workspace,
+			"run_list": workflow.run_list
+		}
+		self._init_tasks(workflow)
 		self.futures_to_task = {}
 		# zmq
 		self.zmq_context = zmq.Context()
@@ -102,15 +108,45 @@ class Processor:
 			elif task["status"] == TaskStatus.FAILED:
 				logger.info(f"Task {task["id"]} failed.")
 
-	def _init_tasks(self, pre_tasks):
-		offset = 0
+	def _init_tasks(self, workflow: Workflow):
+		# print(json.dumps(workflow.model_dump(), indent=2))
+		adapted = self._adapt_workflow(workflow)
+		# print(json.dumps(adapted, indent=2))
+
+		load_run_nodes = []
+		single_mode_nodes = []
+		multiple_mode_nodes = []
+		for node in adapted["nodes"]:
+			if node["name"] == "load_run":
+				single_mode_nodes.append(node["id"])
+				load_run_nodes.append(node["id"])
+			elif node["name"] == "load_list_run":
+				multiple_mode_nodes.append(node["id"])
+		if len(multiple_mode_nodes) != 0:
+			raise NotImplementedError("Multiple mode nodes are not supported yet.")
+		change = True
+		while change:
+			change = False
+			for node in adapted["nodes"]:
+				if node["id"] in single_mode_nodes:
+					continue
+				for depend_node in node["waiting"]:
+					if depend_node in single_mode_nodes:
+						single_mode_nodes.append(node["id"])
+						change = True
+
+		# solve load run
 		self.tasks = []
+		task_id = 0
+		task_id_map = {}
 		for run in self.environment["run_list"]:
-			for ptask in pre_tasks:
+			for node in adapted["nodes"]:
+				if node["name"] == "load_run":
+					continue
 				task = {
 					"execution_id": self.environment["execution_id"],
-					"id": ptask.id + offset,
-					"name": ptask.name,
+					"id": task_id,
+					"name": node["name"],
 					"environment": {
 						"run": run,
 						"workspace_dir": self.environment["workspace"],
@@ -122,34 +158,106 @@ class Processor:
 					"waiting": [],
 					"status": TaskStatus.WAITING
 				}
-				for port in ptask.inputs:
-					if port.link_task == -1:
-						task["inputs"][port.name] = port.value
+				for port in node["inputs"]:
+					if port["link_node"] == -1:
+						task["inputs"][port["name"]] = port["value"]
+					elif port["link_node"] in load_run_nodes:
+						task["inputs"][port["name"]] = int(run)
 					else:
 						task["ports"].append({
 							"port": "inputs",
-							"name": port.name,
-							"link_task": port.link_task + offset,
-							"link_port": port.link_port,
-							"value": None
+							"name": port["name"],
+							"link_task": (run, port["link_node"]),
+							"link_port": port["link_port"],
 						})
-				for port in ptask.properties:
-					if port.link_task == -1:
-						task["properties"][port.name] = port.value
+				for port in node["properties"]:
+					if port["link_node"] == -1:
+						task["properties"][port["name"]] = port["value"]
+					elif port["link_node"] in load_run_nodes:
+						task["properties"][port["name"]] = int(run)
 					else:
 						task["ports"].append({
 							"port": "properties",
-							"name": port.name,
-							"link_task": port.link_task + offset,
-							"link_port": port.link_port,
-							"value": None
+							"name": port["name"],
+							"link_task": (run, port["link_node"]),
+							"link_port": port["link_port"],
 						})
-				for id in ptask.waiting:
-					task["waiting"].append(id + offset)
+				for id in node["waiting"]:
+					if id not in load_run_nodes:
+						task["waiting"].append((run, id))
 				if len(task["waiting"]) == 0:
 					task["status"] = TaskStatus.READY
 				self.tasks.append(task)
-			offset += len(pre_tasks)
+				task_id_map[(run, node["id"])] = task_id
+				task_id += 1
+		# print(json.dumps(self.tasks, indent=2))
+		# solve link task id
+		for task in self.tasks:
+			for port in task["ports"]:
+				port["link_task"] = task_id_map[port["link_task"]]
+		# print(json.dumps(self.tasks, indent=2))
+
+	def _parse_property_value(self, prop: Dict[str, Any]):
+		"""Parse property value based on its type."""
+		result = None
+		if "type" in prop:
+			try:
+				match prop["type"]:
+					case "integer":
+						result = int(prop["value"])
+					case "float":
+						result = float(prop["value"])
+					case "bool":
+						result = bool(prop["value"])
+					case "str":
+						result = prop["value"]
+			except:
+				result = None
+		return result
+
+	def _adapt_workflow(self, workflow: Workflow):
+		"""Adapt workflow to execution task."""
+		adapted = {
+			"workflow_name": workflow.name,
+			"workspace": workflow.workspace,
+			"threads": workflow.workers,
+			"run_list": workflow.run_list,
+			"nodes": [
+				{
+					"id": node.id,
+					"name": node.name,
+					"inputs": [
+						{
+							"name": v["name"],
+							"link_node": -1,
+						} for v in node.inputs
+					],
+					"properties": [
+						{
+							"name": v["name"],
+							"link_node": -1,
+							"value": self._parse_property_value(v),
+						} for v in node.properties
+					],
+					"waiting": [],
+				} for node in workflow.nodes
+			],
+		}
+		# get map
+		node_map = {node["id"]: idx for idx, node in enumerate(adapted["nodes"])}
+		# loop links
+		for link in workflow.links:
+			target_node = adapted["nodes"][node_map[link.target]]
+			target_port_id = int(link.targetHandle.split("-")[1])
+			target_port = (
+				target_node["inputs"][target_port_id]
+				if link.targetHandle.startswith("input-")
+				else target_node["properties"][target_port_id]
+			)
+			target_port["link_node"] = link.source
+			target_port["link_port"] = int(link.sourceHandle.split("-")[1])
+			target_node["waiting"].append(link.source)
+		return adapted
 
 	def _submit_ready_tasks(self, executor):
 		for task in self.tasks:
@@ -189,6 +297,6 @@ class Processor:
 				self._chain_discard(task["id"])
 
 	@classmethod
-	def run(cls, threads, environment, tasks):
-		processor = cls(threads, environment, tasks)
+	def run(cls, execution_id: str, workflow: Workflow):
+		processor = cls(execution_id, workflow)
 		processor.process()

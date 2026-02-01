@@ -34,8 +34,6 @@ dependencies = [
 Homepage = "https://github.com/kinstaky/attpc_flow"
 
 [project.scripts]
-atflow-server = "atflow.launcher:start_server"
-atflow-worker = "atflow.launcher:start_worker"
 atflow = "atflow.launcher:main"
 
 

@@ -17,7 +17,6 @@ def zmq_collector_tqdm():
     # Dictionary to track progress bars for each task: {task_id: pbar}
     progress_bars = {}
     # Next available position
-    next_position = 0
 
     while True:
         try:
@@ -36,41 +35,18 @@ def zmq_collector_tqdm():
             if command == "start":
                 # Handle start message - create new progress bar
                 if task_id not in progress_bars:
-                    pbar = tqdm(
+                    progress_bars[task_id] = tqdm(
                         total=100,
                         desc=f"Task {task_id}",
-                        position=next_position,
-                        leave=False,
                         unit="%",
                         bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]"
                     )
-                    progress_bars[task_id] = pbar
-                    next_position += 1
-                    logging.info(f"Started progress bar for task {task_id} at position {position}")
+                    logging.info(f"Started progress bar for task {task_id}.")
 
             elif command == "finish":
-                # Handle finish message - close progress bar and recycle position
+                # Handle finish message
                 if task_id in progress_bars:
-                    pbar = progress_bars[task_id]
-                    position = pbar.pos  # Get the position before closing
-                    pbar.update(100)  # Ensure it shows 100%
-                    pbar.close()
-                    del progress_bars[task_id]
-
-                    for pbar in progress_bars.values():
-                        if pbar.position > position:
-                            new_pbar = tqdm(
-                                total=pbar.total,
-                                desc=pbar.desc,
-                                position=pbar.position-1,
-                                leave=False,
-                                unit="%",
-                                bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]",
-                                initial=pbar.n
-                            )
-                            pbar.close()
-                            progress_bars[pbar.id] = new_pbar
-                    next_position -= 1
+                    progress_bars[task_id].update(max(0, 100-progress_bars[task_id].n))
                     logging.info(f"Finished progress bar for task {task_id}.")
 
             else:
@@ -80,23 +56,20 @@ def zmq_collector_tqdm():
 
                     # Create progress bar if it doesn't exist (for legacy compatibility)
                     if task_id not in progress_bars:
-                        pbar = tqdm(
+                        progress_bars[task_id] = tqdm(
                             total=100,
                             desc=f"Task {task_id}",
-                            position=next_position,
-                            leave=False,
                             unit="%",
                             bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]"
                         )
-                        progress_bars[task_id] = pbar
-                        next_position += 1
 
                     # Update progress bar
-                    pbar = progress_bars[task_id]
-                    current_value = pbar.n
+                    current_value = progress_bars[task_id].n
                     increment = max(0, min(percentage - current_value, 100 - current_value))
                     if increment > 0:
-                        pbar.update(increment)
+                        progress_bars[task_id].update(increment)
+
+                    logging.debug(f"Updated progress bar for task {task_id} to {percentage}%")
 
                 except ValueError:
                     logging.warning(f"Received unknown message type: {command}")
@@ -104,9 +77,9 @@ def zmq_collector_tqdm():
         except zmq.ZMQError as e:
             logging.error(f"ZMQ error in tqdm collector: {e}")
 
-    # Close all progress bars
-    for pbar in progress_bars.values():
-        pbar.close()
+    # # Close all progress bars
+    # for pbar in progress_bars.values():
+    #     pbar.close()
 
 def zmq_collector_store():
     """Progress store collector for web UI display."""

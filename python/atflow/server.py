@@ -13,7 +13,8 @@ from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from fastapi.exceptions import HTTPException
+from pydantic import BaseModel
 from typing import Dict, List, Optional, Any
 from pathlib import Path
 
@@ -23,6 +24,7 @@ from atflow.progress_store import (
     progress_store,
     ExecutionStatus,
 )
+from .workflow import Workflow
 
 app = FastAPI(
 	title="ATTPC Flow API",
@@ -61,32 +63,6 @@ class NodeResponse(BaseModel):
 	outputs: Optional[Dict[str, str]] = None
 	properties: Optional[Dict[str, str]] = None
 	parameters: Optional[Dict[str, str]] = None
-
-class WorkflowNode(BaseModel):
-	id: int
-	name: str
-	position: Dict[str, float]
-	inputs: List[Dict[str, str]] = Field(default_factory=list)
-	outputs: List[Dict[str, str]] = Field(default_factory=list)
-	properties: List[Dict[str, Any]] = Field(default_factory=list)
-
-class WorkflowLink(BaseModel):
-	id: int
-	source: int
-	sourceHandle: str
-	target: int
-	targetHandle: str
-
-class Workflow(BaseModel):
-	name: str
-	workspace: Optional[str] = None
-	workers: int = 2
-	run_list: List[int] = Field(alias="runList", default_factory=list)
-	run_numbers: str = Field(alias="runNumbers", default="")
-	nodes: List[WorkflowNode] = Field(default_factory=list)
-	links: List[WorkflowLink] = Field(default_factory=list)
-	last_node: int = Field(alias="lastNode")
-	last_link: int = Field(alias="lastLink")
 
 # Storage
 WORKFLOWS_DIR = Path("workflows")
@@ -412,6 +388,7 @@ async def get_execution_status(execution_id: str):
 @app.get("/health")
 async def health_check():
 	"""Health check endpoint."""
+	from .progress_store import workflow_queue
 	return {
 		"status": "healthy",
 		"nodes_registered": len(NodeRegistry._registry),

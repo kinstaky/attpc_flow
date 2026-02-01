@@ -10,13 +10,15 @@ import zmq
 import subprocess
 import os
 import argparse
+import json
+import sys
+import uuid
+from datetime import datetime
 
 from .processor import Processor
 from .collector import zmq_collector_tqdm, zmq_collector_store
 from .nodes import *
-
-# Configure ONE global colorful handler for all processes
-import colorlog
+from .workflow import Workflow
 
 class AlignedFormatter(logging.Formatter):
     """Custom formatter that aligns all log levels perfectly with colors."""
@@ -94,8 +96,6 @@ def start_worker():
 def start_full_system(host="0.0.0.0", port=8000, reload=False):
 	"""Start complete ATTPC Flow system (server + worker + collector)."""
 
-	logger.info(f"Starting ATTPC Flow full system on http://{host}:{port}")
-
 	# Local state for cleanup
 	processes = {}
 	threads = {}
@@ -136,22 +136,16 @@ def start_full_system(host="0.0.0.0", port=8000, reload=False):
 		try:
 			while True:
 				try:
-					workflow_data = queue.get(timeout=1)  # Add timeout
-					if workflow_data is None:
-						break
+					execution_id, workflow = queue.get(timeout=1)  # Add timeout
+					if workflow is None:
+						continue
 
-					execution_id = workflow_data.execution_id
 					worker_logger.info(f"Processing execution {execution_id}")
 
 					# Run workflow
 					Processor.run(
-						threads=workflow_data.threads,
-						environment={
-							"execution_id": execution_id,
-							"workspace": workflow_data.workspace,
-							"run_list": workflow_data.run_list,
-						},
-						tasks=workflow_data.tasks
+						execution_id=execution_id,
+						workflow=workflow,
 					)
 
 					# Update status
@@ -168,25 +162,22 @@ def start_full_system(host="0.0.0.0", port=8000, reload=False):
 		worker_logger.info("Worker stopped")
 
 	try:
-		# Create workflow queue
-		workflow_queue = mp.Queue()
-
-		# Initialize server
-		from .progress_store import init_workflow_queue
-		init_workflow_queue(workflow_queue)
+		# Initialize server with auto-created queue
+		from .progress_store import get_workflow_queue
+		workflow_queue = get_workflow_queue()
 
 		collector_thread = threading.Thread(target=zmq_collector_store)
 		collector_thread.start()
 		threads["collector"] = collector_thread
 
-		# Start worker process
+		# Start worker process with existing queue
 		worker_process = mp.Process(target=_workflow_worker, args=(workflow_queue,))
 		worker_process.start()
 		processes["worker"] = worker_process
 
 		# Start server in main process
 		from .server import run_server
-		run_server(host=host, port=port, reload=reload)
+		run_server(host=host, port=port, reload=False)
 
 	except Exception as e:
 		logger.error(f"Unexpected error: {e}")
@@ -198,36 +189,65 @@ def start_full_system(host="0.0.0.0", port=8000, reload=False):
 def start_dev_servers(host="0.0.0.0", port=8000):
 	"""Start both frontend and backend with hot reload for development."""
 	logger.info("Starting ATTPC Flow development servers...")
-	logger.info(f"Backend will be available at http://{host}:{port}")
-	logger.info("Frontend will be available at http://localhost:3000")
 
 	# Get project root directory
 	project_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 	frontend_dir = os.path.join(project_root, "frontend")
 
 	try:
-		# Start backend with uvicorn reload by calling start_server directly
-		logger.info("Starting FastAPI backend with hot reload...")
-		backend_proc = mp.Process(
-			target=start_full_system,
-			kwargs={"host": host, "port": port, "reload": True}
-		)
-		backend_proc.start()
-
-		# Start frontend with Vite
+		# Start frontend with Vite first, capturing output
 		logger.info("Starting Vite frontend with hot reload...")
 		frontend_cmd = ["pnpm", "dev", "--host"]
-		frontend_proc = subprocess.Popen(frontend_cmd, cwd=frontend_dir)
+		frontend_proc = subprocess.Popen(
+			frontend_cmd,
+			cwd=frontend_dir,
+			stdout=subprocess.PIPE,
+			stderr=subprocess.STDOUT,
+			universal_newlines=True,
+			bufsize=1
+		)
+
+		# Start backend directly in main process for visible logs
+		logger.info("Starting FastAPI backend with hot reload...")
+
+		# Store original print function
+		original_print = print
+
+		# Add prefix to backend logs
+		import builtins
+		def prefixed_print(*args, **kwargs):
+			original_print("[BACKEND] ", end='')
+			original_print(*args, **kwargs)
+
+		# Temporarily replace print for backend logs
+		builtins.print = prefixed_print
+
+		# Function to read and prefix frontend logs
+		def read_frontend_output():
+			for line in iter(frontend_proc.stdout.readline, ''):
+				if line:
+					# Use original print to avoid backend prefix
+					original_print(f"[FRONTEND] {line}", end='')
+
+		# Start thread to read frontend output
+		import threading
+		frontend_thread = threading.Thread(target=read_frontend_output, daemon=True)
+		frontend_thread.start()
+
+		try:
+			# Run backend in main process so logs are visible
+			start_full_system(host=host, port=port, reload=True)
+		finally:
+			# Restore original print
+			builtins.print = original_print
 
 		# Wait for processes
 		try:
-			backend_proc.join()
+			# Backend runs in main process, so just wait for frontend
 			frontend_proc.wait()
 		except KeyboardInterrupt:
 			logger.info("Received interrupt signal, shutting down development servers...")
-			backend_proc.terminate()
 			frontend_proc.terminate()
-			backend_proc.join()
 			frontend_proc.wait()
 			logger.info("Development servers stopped")
 
@@ -242,16 +262,94 @@ def launch(host="0.0.0.0", port=8000, dev=False):
 	else:
 		start_full_system(host=host, port=port)
 
+def process_workflow(workflow_file):
+	"""Process workflow from file with terminal progress bar."""
+	# Read workflow first to get workflow ID
+	try:
+		with open(workflow_file, 'r') as f:
+			workflow_data = json.load(f)
+		workflow_id = workflow_data.get("name", "workflow").replace(" ", "_")
+	except Exception as e:
+		print(f"Error: Failed to load workflow file: {e}")
+		sys.exit(1)
+
+	# Generate timestamp and execution ID
+	timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+	execution_id = str(uuid.uuid4())
+
+	# Create logs directory if it doesn't exist
+	logs_dir = "logs"
+	os.makedirs(logs_dir, exist_ok=True)
+
+	# Format log file name as logs/{workflow_id}-{timestamp}-{execution_id}.txt
+	log_file = f"{logs_dir}/{workflow_id}-{timestamp}-{execution_id}.txt"
+
+	# Configure logging to file
+	file_handler = logging.FileHandler(log_file, mode='w')
+	file_handler.setFormatter(AlignedFormatter())
+
+	# Get the root logger and redirect all handlers to file
+	root_logger = logging.getLogger()
+	# Remove existing handlers
+	for handler in root_logger.handlers[:]:
+		root_logger.removeHandler(handler)
+	# Add file handler
+	root_logger.addHandler(file_handler)
+	root_logger.setLevel(logging.DEBUG)
+
+	logger.info(f"Loaded workflow from {workflow_file}")
+	logger.info(f"Starting workflow execution {execution_id}")
+	print(f"\nProcessing workflow: {workflow_file}")
+	print(f"Execution ID: {execution_id}")
+	print(f"Log file: {log_file}")
+	print("-" * 50)
+
+	try:
+		# Start zmq collector for tqdm in a thread
+		collector_thread = threading.Thread(target=zmq_collector_tqdm)
+		collector_thread.start()
+		logger.info("Started ZMQ collector for terminal progress bar")
+
+		# Create workflow object
+		workflow = Workflow.model_validate(workflow_data)
+
+		# Use the Processor.run class method
+		Processor.run(
+			execution_id=execution_id,
+			workflow=workflow,
+		)
+
+		# Send termination message to collector
+		send_terminal_message()
+		collector_thread.join(timeout=2)
+
+		logger.info(f"Completed workflow execution {execution_id}")
+		print("\n" + "-" * 50)
+		print("Workflow completed successfully!")
+		print(f"Check {log_file} for detailed logs.")
+
+	except Exception as e:
+		# Send termination message to collector
+		send_terminal_message()
+		collector_thread.join(timeout=2)
+		logger.error(f"Workflow execution failed: {e}")
+		print(f"\nError: Workflow execution failed: {e}")
+		print(f"Check {log_file} for detailed logs.")
+
+
 def main():
 	"""Main entry point for command line interface."""
 	parser = argparse.ArgumentParser(description="ATTPC Flow launcher")
 	parser.add_argument("--host", default="0.0.0.0", help="Host to bind to")
 	parser.add_argument("--port", type=int, default=8000, help="Port to bind to")
 	parser.add_argument("--dev", action="store_true", help="Start development servers with hot reload")
+	parser.add_argument("--workflow", help="Read workflow from file and run it.")
 
 	args = parser.parse_args()
 
-	if args.dev:
+	if args.workflow:
+		process_workflow(args.workflow)
+	elif args.dev:
 		start_dev_servers(host=args.host, port=args.port)
 	else:
 		start_full_system(host=args.host, port=args.port)

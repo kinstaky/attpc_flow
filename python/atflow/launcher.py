@@ -88,16 +88,16 @@ def start_server(host="0.0.0.0", port=8000, reload=False):
 	run_server(host=host, port=port, reload=reload)
 
 def start_worker():
-	"""Start worker process only."""
+	"""Start worker thread only."""
 	logger.info("Starting ATTPC Flow worker")
 	workflow_queue = mp.Queue()
-	_workflow_worker(workflow_queue)
+	worker_thread = threading.Thread(target=_workflow_worker, args=(workflow_queue,))
+	worker_thread.start()
 
 def start_full_system(host="0.0.0.0", port=8000, reload=False):
 	"""Start complete ATTPC Flow system (server + worker + collector)."""
 
 	# Local state for cleanup
-	processes = {}
 	threads = {}
 	workflow_queue = None
 
@@ -106,18 +106,16 @@ def start_full_system(host="0.0.0.0", port=8000, reload=False):
 		# Send poison pill to worker
 		if workflow_queue:
 			try:
-				workflow_queue.put(None)
+				workflow_queue.put((None, None))
 			except:
 				pass
 
-		logger.debug("Shutting down worker")
-		# Wait for worker
-		if "worker" in processes:
-			worker = processes["worker"]
-			if worker.is_alive():
-				worker.join(timeout=2)
-				if worker.is_alive():
-					worker.terminate()
+		# logger.debug("Shutting down worker")
+		# # Wait for worker thread
+		# if "worker" in threads:
+		# 	worker = threads["worker"]
+		# 	if worker.is_alive():
+		# 		worker.join(timeout=2)
 
 		logger.debug("Shutting down threads")
 		# Don't wait for daemon threads - they'll be killed automatically
@@ -129,7 +127,7 @@ def start_full_system(host="0.0.0.0", port=8000, reload=False):
 					pass
 
 	def _workflow_worker(queue: mp.Queue):
-		"""Worker process."""
+		"""Worker thread."""
 		# Use the global handler configured by basicConfig
 		worker_logger = logging.getLogger(__name__)
 		worker_logger.info("Worker started")
@@ -138,7 +136,7 @@ def start_full_system(host="0.0.0.0", port=8000, reload=False):
 				try:
 					execution_id, workflow = queue.get(timeout=1)  # Add timeout
 					if workflow is None:
-						continue
+						break
 
 					worker_logger.info(f"Processing execution {execution_id}")
 
@@ -170,14 +168,14 @@ def start_full_system(host="0.0.0.0", port=8000, reload=False):
 		collector_thread.start()
 		threads["collector"] = collector_thread
 
-		# Start worker process with existing queue
-		worker_process = mp.Process(target=_workflow_worker, args=(workflow_queue,))
-		worker_process.start()
-		processes["worker"] = worker_process
+		# Start worker thread with existing queue
+		worker_thread = threading.Thread(target=_workflow_worker, args=(workflow_queue,))
+		worker_thread.start()
+		threads["worker"] = worker_thread
 
 		# Start server in main process
 		from .server import run_server
-		run_server(host=host, port=port, reload=False)
+		run_server(host=host, port=port, reload=reload)
 
 	except Exception as e:
 		logger.error(f"Unexpected error: {e}")
@@ -231,12 +229,12 @@ def start_dev_servers(host="0.0.0.0", port=8000):
 
 		# Start thread to read frontend output
 		import threading
-		frontend_thread = threading.Thread(target=read_frontend_output, daemon=True)
+		frontend_thread = threading.Thread(target=read_frontend_output)
 		frontend_thread.start()
 
 		try:
 			# Run backend in main process so logs are visible
-			start_full_system(host=host, port=port, reload=True)
+			start_full_system(host=host, port=port, reload=False)
 		finally:
 			# Restore original print
 			builtins.print = original_print

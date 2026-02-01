@@ -7,11 +7,11 @@ import concurrent.futures
 from enum import IntEnum
 from typing import Dict, Any
 import logging
-import zmq
 import json
 
 from .node_registry import NodeRegistry
 from .workflow import Workflow
+from .progress_store import ProgressStore
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -46,16 +46,21 @@ class Processor:
 		}
 		self._init_tasks(workflow)
 		self.futures_to_task = {}
-		# zmq
-		self.zmq_context = zmq.Context()
-		self.publisher = self.zmq_context.socket(zmq.PUSH)
-		self.publisher.connect("ipc://@attpc_flow_zmq")
-
+		# Progress store for direct updates
+		self.progress_store = ProgressStore()
+		self.progress_store.register_tasks_information(
+			execution_id,
+			{
+				str(task["id"]) : {
+					"name": task["name"],
+					"run": task["environment"]["run_str"],
+				} for task in self.tasks
+			}
+		)
 	def process(self):
 		execution_id = self.environment.get("execution_id")
-
 		# Report execution start
-		self.publisher.send_string(f"execution,start,{execution_id},{len(self.tasks)}")
+		self.progress_store.start_execution(execution_id, len(self.tasks))
 
 		with concurrent.futures.ProcessPoolExecutor(max_workers=self.threads) as executor:
 			# submit initial ready tasks
@@ -82,7 +87,7 @@ class Processor:
 						task["status"] = TaskStatus.FAILED
 						logger.error(f"Task {task['id']} failed: {e}")
 						# Report task failed
-						self.publisher.send_string(f"task,failed,{execution_id},{task['id']}")
+						self.progress_store.finish_task(execution_id, str(task["id"]), failed=True)
 
 					finally:
 						completed_tasks = 0
@@ -93,14 +98,18 @@ class Processor:
 								or jtask["status"] == TaskStatus.COMPLETED
 							):
 								completed_tasks += 1
-						self.publisher.send_string(f"execution,progress,{execution_id},{completed_tasks},{len(self.tasks)}")
+						self.progress_store.update_execution_progress(
+							execution_id,
+							completed_tasks,
+							len(self.tasks)
+						)
 
 					# submit new tasks
 					self._reduce_waiting(task["id"])
 					self._submit_ready_tasks(executor)
 
 		# Report execution finish
-		self.publisher.send_string(f"execution,finish,{execution_id},{len(self.tasks)}")
+		self.progress_store.finish_execution(execution_id, len(self.tasks))
 
 		for task in self.tasks:
 			if task["status"] == TaskStatus.COMPLETED:
@@ -149,6 +158,7 @@ class Processor:
 					"name": node["name"],
 					"environment": {
 						"run": run,
+						"run_str": str(run),
 						"workspace_dir": self.environment["workspace"],
 						**self.environment
 					},

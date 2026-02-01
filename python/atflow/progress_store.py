@@ -25,6 +25,8 @@ def get_workflow_queue():
 
 class TaskProgress(BaseModel):
     task_id: str
+    task_name: Optional[str] = None
+    run: Optional[str] = None
     percentage: int
     timestamp: float
     status: Literal["running", "failed", "completed"]
@@ -37,6 +39,10 @@ class ExecutionStatus(BaseModel):
     completed_at: Optional[float] = None
     completed_tasks: int = 0
     total_tasks: int = 0
+
+class TaskInfo(BaseModel):
+    name: str
+    run: str
 
 class ProgressStore:
     """Thread-safe progress store with WebSocket broadcasting capability."""
@@ -55,10 +61,10 @@ class ProgressStore:
     def __init__(self):
         if self._initialized:
             return
-
         self._initialized = True
         self.executions: Dict[str, ExecutionStatus] = {}  # {execution_id: ExecutionStatus}
         self.tasks: Dict[str, Dict[str, TaskProgress]] = {}  # {task_id: [TaskProgress]}
+        self.task_info: Dict[str, Dict[str, TaskInfo]] = {}  # {task_id: TaskInfo}
         self.websocket_callbacks: List[Callable] = []  # [callbacks]
         self._data_lock = threading.Lock()
 
@@ -89,8 +95,12 @@ class ProgressStore:
                 return
 
             # Create new task progress with 0% and running status
+            task_info = self.task_info.get(execution_id, {}).get(task_id, {})
+
             progress = TaskProgress(
                 task_id=task_id,
+                task_name=task_info.name,
+                run=task_info.run,
                 percentage=0,
                 timestamp=time.time(),
                 status="running"
@@ -115,10 +125,14 @@ class ProgressStore:
                 self.tasks[execution_id] = {}
                 logging.info(f"Initialized progress tracking for execution {execution_id}")
 
+            task_info = self.task_info.get(execution_id, {}).get(task_id, {})
+
             # Check if task exists and handle progress logic
             if task_id not in self.tasks[execution_id]:
                 progress = TaskProgress(
                     task_id=task_id,
+                    task_name=task_info.name,
+                    run=task_info.run,
                     percentage=0,
                     timestamp=time.time(),
                     status="running"
@@ -135,6 +149,8 @@ class ProgressStore:
             # Update task progress
             progress = TaskProgress(
                 task_id=task_id,
+                task_name=task_info.name,
+                run=task_info.run,
                 percentage=percentage,
                 timestamp=time.time(),
                 status="running"
@@ -161,8 +177,11 @@ class ProgressStore:
                 logging.info(f"Initialized progress tracking for execution {execution_id}")
 
             # Create or update task progress with 100% and completed status
+            task_info = self.task_info.get(execution_id, {}).get(task_id, {})
             progress = TaskProgress(
                 task_id=task_id,
+                task_name=task_info.name,
+                run=task_info.run,
                 percentage=100,
                 timestamp=time.time(),
                 status="failed" if failed else "completed"
@@ -179,6 +198,22 @@ class ProgressStore:
             })
 
             logging.debug(f"Finished task: {execution_id}:{task_id}")
+
+    def register_tasks_information(self, execution_id: str, tasks: Dict[str, Dict[str, str]]):
+        with self._data_lock:
+            self.task_info[execution_id] = {
+                task_id: TaskInfo(**task_info) for task_id, task_info in tasks.items()
+            }
+            # import json
+            # print(json.dumps(
+            #     {
+            #         execution_id: {
+            #             task_id: task_info.model_dump()
+            #             for task_id, task_info in infos.items()
+            #         } for execution_id, infos in self.task_info.items()
+            #     },
+            #     indent=2
+            # ))
 
     def start_execution(self, execution_id: str, total_tasks: int):
         """Start an execution and notify WebSocket subscribers."""

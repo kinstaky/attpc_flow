@@ -12,6 +12,8 @@ export interface ExecutionStatus {
 
 export interface TaskProgress {
   task_id: string
+  task_name: string | null
+  run: string | null
   percentage: number
   timestamp: number
   status: "running" | "failed" | "completed"

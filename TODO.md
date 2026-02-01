@@ -1,6 +1,6 @@
 # Todo
 ## UI
-- [ ] beautify task progress
+- [x] beautify task progress
 - [ ] delete node, delete link
 - [ ] all tab MUST attach to file
 - [ ] undo and redo, unify workflow graph edit command: pop_node, push_node, insert_node, delete_node, ..link, move node,

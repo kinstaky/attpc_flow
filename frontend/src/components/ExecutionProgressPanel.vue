@@ -225,7 +225,8 @@ onUnmounted(() => {
             class="task-item mb-2"
           >
             <v-list-item-title>
-              Task {{ taskId }} 
+              {{ progress.task_name || "Task " + taskId }}
+              <span v-if="progress.run"> • run {{ progress.run }}</span>
               <v-chip
                 :color="getStatusConfig(progress.status).color"
                 size="x-small"

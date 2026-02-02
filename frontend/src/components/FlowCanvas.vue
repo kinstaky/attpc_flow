@@ -39,6 +39,7 @@ const vueFlowEdges = computed(() => {
       style: {
         stroke: linkColor,
         strokeWidth: 2,
+        '--edge-color': linkColor,
       }
     }
   })
@@ -159,6 +160,7 @@ const handleConnectEnd = (_event: any) => {
         <FlowNode
           :node-data="nodeProps.data"
           :linking="linking"
+          :selected="nodeProps.selected"
         />
       </template>
     </VueFlow>
@@ -176,5 +178,10 @@ const handleConnectEnd = (_event: any) => {
   width: 100%;
   height: 100%;
   background: #1e1e1e;
+}
+
+:deep(.vue-flow__edge.selected path) {
+  stroke-width: 3.5 !important;
+  filter: drop-shadow(0 0 6px var(--edge-color));
 }
 </style>

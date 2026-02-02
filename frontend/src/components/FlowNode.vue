@@ -14,6 +14,7 @@ interface Linking {
 interface Props {
   nodeData: NodeData
   linking: Linking
+  selected: boolean
 }
 
 const props = defineProps<Props>()
@@ -64,7 +65,7 @@ const isPropertySelf = (nodeId: number, portIndex: number) => {
 </script>
 
 <template>
-  <v-card class="flow-node" :style="{ width: nodeWidth + 'px' }" elevation="2">
+  <v-card class="flow-node" :class="{ 'flow-node--selected': selected }" :style="{ width: nodeWidth + 'px' }" elevation="2">
     <!-- Node Title -->
     <v-card-title class="node-title pa-2 text-center">
       {{ nodeData.name }}
@@ -184,6 +185,7 @@ const isPropertySelf = (nodeId: number, portIndex: number) => {
   overflow: visible;
   user-select: none;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3) !important;
+  /* cursor: pointer; */
 }
 
 .node-title {
@@ -195,6 +197,17 @@ const isPropertySelf = (nodeId: number, portIndex: number) => {
   display: flex;
   align-items: center;
   justify-content: center;
+}
+
+:deep(.vue-flow__node.selected .flow-node),
+.flow-node--selected {
+  border-color: rgb(var(--v-theme-primary)) !important;
+  box-shadow: 0 0 0 2px rgba(var(--v-theme-primary), 0.35), 0 6px 14px rgba(0, 0, 0, 0.4) !important;
+}
+
+:deep(.vue-flow__node.selected .node-title),
+.flow-node--selected .node-title {
+  background: rgba(var(--v-theme-primary), 0.2);
 }
 
 .port-row {

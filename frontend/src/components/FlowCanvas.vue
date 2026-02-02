@@ -2,9 +2,9 @@
 import { computed, reactive } from 'vue'
 import { NodeDragEvent, Connection, VueFlow, OnConnectStartParams } from '@vue-flow/core'
 import FlowNode from './FlowNode.vue'
-import { activeWorkflow } from '../stores/tabs'
-import { type Link, validateLink, createLinkFromConnection, getPortBasicType } from '../types/link'
-import { interfaceColor, InterfaceType, linkProperty } from '../types/nodes'
+import { activeWorkflow, activeWorkflowAddLink, activeWorkflowMoveNode } from '../models/tabs'
+import { type Link, createLinkFromConnection } from '../types/link'
+import { interfaceColor, InterfaceType } from '../types/node'
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
 
@@ -28,7 +28,7 @@ const vueFlowEdges = computed(() => {
 
   return workflow.links.map((link) => {
     const source = `${link.source}`
-    const sourceType = getPortBasicType(workflow, source, link.sourceHandle)
+    const sourceType = workflow.getPortBasicType(link.source, link.sourceHandle)
     const linkColor = interfaceColor[sourceType as InterfaceType]
     return {
       id: `${link.id}`,
@@ -61,23 +61,23 @@ const handleNodeDragStop = (event: NodeDragEvent) => {
   if (!workflow) return
 
   // Find the node in workflow and update its position
-  const workflowNode = workflow.nodes.find(n => n.id === parseInt(node.id))
-  if (workflowNode) {
-    workflowNode.position = { x: node.position.x, y: node.position.y }
-  }
+  // const workflowNode = workflow.nodes.find(n => n.id === parseInt(node.id))
+  // if (workflowNode) {
+  //   workflowNode.position = { x: node.position.x, y: node.position.y }
+  // }
+
+  activeWorkflowMoveNode(parseInt(node.id), node.position)
 }
 
 // Vue Flow connection events
 const handleConnect = (event: Connection) => {
   console.log('Handle Connect:', event)
 
-  console.log(activeWorkflow.value)
   const workflow = activeWorkflow.value
   if (!workflow) return
 
-
   // Validate connection
-  if (!validateLink(workflow, event)) return
+  if (!workflow.validateLink(event)) return
 
   // Create connection
   const link: Link = createLinkFromConnection(workflow.lastLink, event)
@@ -92,11 +92,7 @@ const handleConnect = (event: Connection) => {
 
   if (linkExists) return
 
-  // Add to workflow
-  workflow.links.push(link)
-  ++workflow.lastLink
-
-  linkProperty(workflow.nodes[link.target], link.targetHandle)
+  activeWorkflowAddLink(link)
 
   console.log("Linked: ", workflow)
 }

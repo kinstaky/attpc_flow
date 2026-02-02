@@ -1,18 +1,13 @@
 <script setup lang="ts">
-import { ref, onMounted, inject, computed } from 'vue'
+import { ref, inject, computed } from 'vue'
 import { useTheme } from 'vuetify'
 import {
-  addNewTab,
-  saveTab,
-  activeTabId,
-  activeTabName,
-  isTabAttached,
-  activeWorkflow,
-  updateActiveWorkflow
-} from '../stores/tabs'
-import { getWorkflow, listWorkflows } from '../api/workflow'
+  activeWorkflowAddNode,
+  createTab,
+} from '../models/tabs'
+import { listWorkflows } from '../api/workflow'
 import ExecutionProgressPanel from './ExecutionProgressPanel.vue'
-import type { NodePort, NodeProperty, NodeData } from '../types/nodes'
+import { parseNode } from '../types/node'
 
 // Inject error handler from parent
 const showError = inject<(message: string) => void>('showError', (msg: string) => {
@@ -42,7 +37,10 @@ const toggleTheme = () => {
 }
 
 // Generic panel opener with optional refresh
-const openPanel = async (panelType: 'nodes' | 'workflows' | 'progress', refreshFn?: () => Promise<void>) => {
+const openPanel = async (
+  panelType: 'nodes' | 'workflows' | 'progress',
+  refreshFn?: () => Promise<void>
+) => {
   showPanel.value = showPanel.value === panelType ? "" : panelType
 
   // Always refresh data when opening the panel
@@ -80,62 +78,20 @@ const fetchNodes = async () => {
   }
 }
 
-const clickNode = async (nodeName: string) => {
+const addNode = async (nodeName: string) => {
   try {
     const response = await fetch(`/nodes/${nodeName}`)
     if (response.ok) {
       const nodeData = await response.json()
-
-      // Add node to active workflow at viewport center
-      const workflow = activeWorkflow.value
-      if (workflow) {
-        // Calculate center position (default position if no nodes exist)
-        let position = { x: 400, y: 200 }
-        // If there are existing nodes, place new node at viewport center
-        if (workflow.nodes.length > 0) {
-          // Simple center positioning - could be enhanced with actual viewport calculation
-          position = { x: 400 + Math.random() * 100, y: 200 + Math.random() * 100 }
-        }
-
-        const newNode: NodeData = {
-          id: workflow.lastNode,
-          name: nodeName,
-          position: {x: position.x, y: position.y},
-          inputs: adaptNodePorts(nodeData.inputs),
-          outputs: adaptNodePorts(nodeData.outputs),
-          properties: adaptNodeProperties(nodeData.properties),
-        }
-
-        workflow.nodes.push(newNode)
-        ++workflow.lastNode
-      }
+      let position = { x: 400 + Math.random() * 100, y: 200 + Math.random() * 100 }
+     const newNode = parseNode(nodeData, position)
+      activeWorkflowAddNode(newNode)
     }
   } catch (error) {
     console.error(`Failed to fetch node ${nodeName}:`, error)
   }
 }
 
-const adaptNodePorts = (ports: Record<string, string> | null) => {
-  if (!ports) return []
-  return Object.entries(ports).map(([name, type]) => {
-    return {
-      name: name,
-      type: type,
-    } as NodePort
-  })
-}
-
-const adaptNodeProperties = (properties: Record<string, string> | null) => {
-  if (!properties) return []
-  return Object.entries(properties).map(([name, type]) => {
-    return {
-      name: name,
-      type: type,
-      value: "",
-      linked: false,
-    } as NodeProperty
-  })
-}
 
 const fetchWorkflows = async () => {
   try {
@@ -146,48 +102,6 @@ const fetchWorkflows = async () => {
     console.error('Failed to fetch workflows:', error)
   }
 }
-
-const openWorkflow = async (workflowName: string) => {
-  try {
-    // Check if active tab is empty (null name, unattached)
-    const currentTabId = activeTabId.value
-    const currentTabName = activeTabName.value
-    const isAttachedTab = isTabAttached(currentTabId)
-    // const currentWorkflow = activeWorkflow.value ?? null
-
-    let targetTabId: string
-
-    if (!currentTabName && !isAttachedTab) {
-      // Reuse the empty active tab
-      targetTabId = currentTabId
-    } else {
-      // Create a new tab
-      addNewTab()
-      targetTabId = activeTabId.value
-    }
-
-    // Get workflow data from server
-    const workflowData = await getWorkflow(workflowName)
-    updateActiveWorkflow(workflowData)
-
-    // Mark the tab as attached (saved)
-    saveTab(targetTabId)
-
-    console.log('Opened workflow:', workflowName, 'in tab:', targetTabId)
-
-    // Close the workflows submenu
-    showPanel.value = ""
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Failed to open workflow'
-    showError(errorMessage)
-    console.error('Failed to open workflow:', error)
-  }
-}
-
-onMounted(() => {
-  fetchNodes()
-  fetchWorkflows()
-})
 </script>
 
 <template>
@@ -312,7 +226,7 @@ onMounted(() => {
               <v-list-item
                 v-for="node in nodes"
                 :key="node"
-                @click="clickNode(node)"
+                @click="addNode(node)"
                 class="node-item"
                 draggable
               >
@@ -357,7 +271,7 @@ onMounted(() => {
         <v-list-item
           v-for="workflow in workflows"
           :key="workflow"
-          @click="openWorkflow(workflow)"
+          @click="createTab(workflow)"
           class="workflow-item"
         >
           <template v-slot:prepend>

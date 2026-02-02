@@ -1,16 +1,16 @@
-import { activeTabName, activeWorkflow } from '../stores/tabs'
+import { Workflow } from '../models/workflow'
 
 // API base URL
 const API_BASE = ''
 
 // Create new workflow via POST API
-export const createWorkflow = async (): Promise<void> => {
+export const createWorkflow = async (workflow: Workflow): Promise<void> => {
   const response = await fetch(`${API_BASE}/workflows`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify(activeWorkflow.value)
+    body: JSON.stringify(workflow)
   })
 
   if (!response.ok) {
@@ -19,19 +19,15 @@ export const createWorkflow = async (): Promise<void> => {
 }
 
 // Update existing workflow via PUT API
-export const updateWorkflow = async (): Promise<void> => {
-  if (!activeWorkflow.value) {
-    throw new Error('No active workflow to update')
-  }
-  console.log(activeWorkflow.value)
+export const updateWorkflow = async (workflow: Workflow): Promise<void> => {
   const response = await fetch(
-    `${API_BASE}/workflows/${encodeURIComponent(activeWorkflow.value.name!)}`,
+    `${API_BASE}/workflows/${encodeURIComponent(workflow.name)}`,
     {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify(activeWorkflow.value)
+      body: JSON.stringify(workflow)
     }
   )
   if (!response.ok) {
@@ -40,9 +36,9 @@ export const updateWorkflow = async (): Promise<void> => {
 }
 
 // Delete workflow via DELETE API
-export const deleteWorkflow = async (): Promise<void> => {
+export const deleteWorkflow = async (workflowName: string): Promise<void> => {
   const response = await fetch(
-    `${API_BASE}/workflows/${encodeURIComponent(activeTabName.value!)}`,
+    `${API_BASE}/workflows/${encodeURIComponent(workflowName)}`,
     {
       method: 'DELETE'
     }
@@ -64,12 +60,22 @@ export const listWorkflows = async (): Promise<string[]> => {
 }
 
 // get specific workflow via GET API
-export const getWorkflow = async (workflowName: string) => {
-  const response = await fetch(`${API_BASE}/workflows/${workflowName}`)
+export const getWorkflow = async (workflowName: string): Promise<Workflow> => {
+  const response = await fetch(`${API_BASE}/workflows/${encodeURIComponent(workflowName)}`)
   if (!response.ok) {
     throw new Error(`Failed to get workflow: ${response.statusText}`)
   }
-  return await response.json()
+  const data = await response.json()
+  return new Workflow(
+    data.name,
+    data.workspace,
+    data.workers,
+    data.runListStr || '',
+    data.nodes || [],
+    data.links || [],
+    data.lastNode || 0,
+    data.lastLink || 0
+  )
 }
 
 // Check if a workflow name already exists

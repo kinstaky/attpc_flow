@@ -5,8 +5,8 @@ class WorkflowNode(BaseModel):
 	id: int
 	name: str
 	position: Dict[str, float]
-	inputs: List[Dict[str, str]] = Field(default_factory=list)
-	outputs: List[Dict[str, str]] = Field(default_factory=list)
+	inputs: List[Dict[str, Any]] = Field(default_factory=list)
+	outputs: List[Dict[str, Any]] = Field(default_factory=list)
 	properties: List[Dict[str, Any]] = Field(default_factory=list)
 
 class WorkflowLink(BaseModel):

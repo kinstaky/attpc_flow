@@ -46,14 +46,14 @@ export function formatRunNumbers(runList: number[]): string {
  * Parse string representation of run numbers into array
  * Supports individual numbers and ranges (e.g., "1,2,3" or "1-5, 8, 10-15")
  *
- * @param runNumbers - String representation of run numbers
+ * @param runListStr - String representation of run numbers
  * @returns Sorted array of unique run numbers
  */
-export function parseRunNumbers(runNumbers: string): number[] {
-  if (!runNumbers.trim()) return []
+export function parseRunNumbers(runListStr: string): number[] {
+  if (!runListStr.trim()) return []
 
   const parsedRuns: number[] = []
-  const parts = runNumbers.split(',').map(part => part.trim())
+  const parts = runListStr.split(',').map(part => part.trim())
 
   for (const part of parts) {
     if (part.includes('-')) {
@@ -80,24 +80,24 @@ export function parseRunNumbers(runNumbers: string): number[] {
 /**
  * Validate run number string format
  *
- * @param runNumbers - String to validate
+ * @param runListStr - String to validate
  * @returns True if valid, error message if invalid
  */
-export function validateRunNumbers(runNumbers: string): true | string {
-  if (!runNumbers) return 'Run numbers are required'
+export function validateRunNumbers(runListStr: string): true | string {
+  if (!runListStr) return 'Run numbers are required'
 
   // Allow empty string after trimming (user might clear it)
-  if (runNumbers.trim() === '') return true
+  if (runListStr.trim() === '') return true
 
   // Pattern to match: numbers separated by commas, with optional ranges (e.g., 1,2,3 or 1-5, 8, 10-15)
   const pattern = /^\s*(?:\d+(?:-\d+)?)(?:\s*,\s*\d+(?:-\d+)?)*\s*$/
 
-  if (!pattern.test(runNumbers)) {
+  if (!pattern.test(runListStr)) {
     return 'Invalid format. Use comma-separated numbers or ranges (e.g., 1,2,3 or 1-5, 8, 10-15)'
   }
 
   // Additional validation: ensure ranges are valid (start <= end)
-  const parts = runNumbers.split(',').map(part => part.trim())
+  const parts = runListStr.split(',').map(part => part.trim())
   for (const part of parts) {
     if (part.includes('-')) {
       const [start, end] = part.split('-').map(n => parseInt(n.trim()))

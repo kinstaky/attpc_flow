@@ -1,21 +1,16 @@
 <script setup lang="ts">
 import { ref, computed, inject } from 'vue'
 import {
+  tabs,
+  setActiveTab,
   activeTabName,
   activeTabId,
-  activeWorkflow,
-  tabs,
   isTabSaved,
-  getTabName,
-  setActiveTab,
-  updateActiveTabName,
-  setActiveWorkflow,
-  saveTab,
-  addNewTab,
-  deleteTab as deleteTabFromStore
-} from '../stores/tabs'
+  closeActiveTab,
+  createTab
+} from '../models/tabs'
 import { createWorkflow, workflowNameExists } from '../api/workflow'
-import { copyWorkflow, type Workflow } from '../stores/workflow'
+import { Workflow } from '../models/workflow'
 
 // Inject error handler from parent
 const showError = inject<(message: string) => void>('showError', (msg: string) => {
@@ -25,38 +20,10 @@ const showError = inject<(message: string) => void>('showError', (msg: string) =
 // Drag and drop state
 const draggedTab = ref<string | null>(null)
 
-// Dialog states with mutex pattern - only one dialog can be active at a time
-const dialogs = ref({
-  // Which dialog is currently active: null, 'close', or 'name'
-  active: null as string | null,
-  // Close tab dialog data
-  close: {
-    message: '',
-    tabToClose: ''
-  },
-  // Name dialog data
-  name: {
-    title: '',
-    message: '',
-    input: '',
-    callback: null as (() => void) | null
-  }
-})
-
-// Computed properties for dialog visibility (v-model requires a getter/setter)
-const showCloseDialog = computed({
-  get: () => dialogs.value.active === 'close',
-  set: (value: boolean) => {
-    if (!value) dialogs.value.active = null
-  }
-})
-
-const showNameDialog = computed({
-  get: () => dialogs.value.active === 'name',
-  set: (value: boolean) => {
-    if (!value) dialogs.value.active = null
-  }
-})
+// Dialog state
+const nameDialogInput = ref('')
+const showSaveDialog = ref(false)
+const showNameDialog = ref(false)
 
 // Writable computed for v-tabs v-model
 const activeTabModel = computed({
@@ -69,129 +36,34 @@ const activeTabModel = computed({
   }
 })
 
-// Local methods
-const handleTabSwitch = (newTabId: string, _event?: MouseEvent) => {
-  setActiveTab(newTabId)
-}
-
-const deleteTab = (tabId: string, event: MouseEvent) => {
-  event.stopPropagation()
-  // Can only delete the selected tab
-  if (activeTabId.value !== tabId) {
-    return
-  }
-
-  // Check if another dialog is already active
-  if (dialogs.value.active) {
-    return
-  }
-
-  // Store which tab we're trying to close
-  dialogs.value.close.tabToClose = tabId
-
-  // Check if tab is saved
-  if (!isTabSaved(tabId)) {
-    // Unsaved tab - ask to save
-    dialogs.value.close.message = 'Do you want to save this tab before closing?'
-    dialogs.value.active = 'close'
-  } else {
-    // Saved tab - close directly
-    performCloseTab(tabId)
-  }
-}
-
-// Actually close the tab
-const performCloseTab = (tabId: string) => {
-  // Just call deleteTab - it handles everything including creating a new tab if needed
-  deleteTabFromStore(tabId)
-}
-
-// Handle close dialog responses
-const handleCloseDialogSave = async () => {
-  const tabId = dialogs.value.close.tabToClose
-  const workflowName = activeTabName.value
-
-  if (!workflowName) {
-    // Unnamed workflow - show dialog to enter name
-    dialogs.value.name.input = ''
-    dialogs.value.name.callback = async () => {
-      const name = dialogs.value.name.input.trim()
-      if (name) {
-        try {
-          // Save with the new name
-          updateActiveTabName(name)
-          // Set activeWorkflow first so createWorkflow uses the correct data
-          setActiveWorkflow(copyWorkflow(activeWorkflow.value as Workflow, name))
-          await createWorkflow()
-          saveTab(tabId)
-        } catch (error) {
-          const errorMessage = error instanceof Error ? error.message : 'Failed to save workflow'
-          showError(errorMessage)
-        }
-      }
-      // Close the tab
-      performCloseTab(tabId)
-    }
-    // Switch to name dialog
-    dialogs.value.active = 'name'
-    return
-  }
-
-  // Clear the active dialog
-  dialogs.value.active = null
+// Name dialog handlers
+const handleNameDialogConfirm = async () => {
+  const workflowName = nameDialogInput.value.trim()
+  if (!workflowName) return
 
   try {
-    // Named workflow - save it
-    const nameExists = await workflowNameExists(workflowName)
-    if (nameExists) {
-      // Name already exists, show error but still close
-      showError('Workflow name already exists')
+    // Check if workflow already exists
+    const exists = await workflowNameExists(workflowName)
+
+    if (exists) {
+      // Workflow exists, just open it
+      createTab(workflowName)
+    } else {
+      // Workflow doesn't exist - create a new one
+      const newWorkflow = new Workflow(workflowName)
+      await createWorkflow(newWorkflow)
+      await createTab(workflowName)
     }
-
-    // Set activeWorkflow first so createWorkflow uses the correct data
-    setActiveWorkflow(copyWorkflow(activeWorkflow.value as Workflow, workflowName))
-    // Save the workflow
-    await createWorkflow()
-    saveTab(tabId)
-
-    // Close the tab after saving
-    performCloseTab(tabId)
+    // Close the dialog and clear input
+    showNameDialog.value = false
+    nameDialogInput.value = ''
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Failed to save workflow'
-    showError(errorMessage)
-    // Still close the tab even if save failed
-    performCloseTab(tabId)
-  }
-}
-
-const handleCloseDialogNoSave = () => {
-  // Clear the active dialog
-  dialogs.value.active = null
-  // Close without saving
-  const tabId = dialogs.value.close.tabToClose
-  performCloseTab(tabId)
-}
-
-const handleCloseDialogCancel = () => {
-  // Clear the active dialog
-  dialogs.value.active = null
-  dialogs.value.close.tabToClose = ''
-}
-
-// Name dialog handlers
-const handleNameDialogConfirm = () => {
-  // Clear the active dialog
-  dialogs.value.active = null
-  if (dialogs.value.name.callback) {
-    dialogs.value.name.callback()
-    dialogs.value.name.callback = null
+    showError(`Failed to open workflow "${workflowName}": ${error instanceof Error ? error.message : 'Unknown error'}`)
   }
 }
 
 const handleNameDialogCancel = () => {
-  // Clear the active dialog
-  dialogs.value.active = null
-  dialogs.value.name.callback = null
+  showNameDialog.value = false
 }
 
 // Drag and drop handlers
@@ -252,14 +124,14 @@ const handleDragEnd = () => {
             :value="tab.id"
             class="custom-tab"
             draggable="true"
-            @click="handleTabSwitch(tab.id, $event)"
+            @click="setActiveTab(tab.id)"
             @dragstart="handleDragStart($event, tab.id)"
             @dragover="handleDragOver"
             @drop="handleDrop($event, tab.id)"
             @dragend="handleDragEnd"
           >
             <div class="d-flex align-center ga-2">
-              <span>{{ getTabName(tab.id) }}</span>
+              <span>{{ activeTabName }}</span>
               <span
                 v-if="!isTabSaved(tab.id)"
                 class="unsaved-indicator"
@@ -270,7 +142,7 @@ const handleDragEnd = () => {
                 variant="text"
                 size="x-small"
                 v-if="activeTabId === tab.id"
-                @click="deleteTab(tab.id, $event)"
+                @click="showSaveDialog = true"
                 class="ml-0.5 tab-delete-btn"
               ></v-btn>
             </div>
@@ -283,7 +155,7 @@ const handleDragEnd = () => {
           size="small"
           variant="text"
           class="ml-2"
-          @click="addNewTab"
+          @click="showNameDialog = true"
         >
         </v-btn>
       </div>
@@ -296,18 +168,18 @@ const handleDragEnd = () => {
     </v-btn>
   </v-app-bar>
 
-  <!-- Close Tab Dialog -->
-  <v-dialog v-model="showCloseDialog" max-width="400" persistent>
+  <!-- Save Tab Dialog -->
+  <v-dialog v-model="showSaveDialog" max-width="400" persistent>
     <v-card>
-      <v-card-title>Close Tab</v-card-title>
+      <v-card-title>Save workflow</v-card-title>
       <v-card-text>
-        <p>{{ dialogs.close.message }}</p>
+        <p>Would you like to save current workflow?</p>
       </v-card-text>
       <v-card-actions>
         <v-spacer></v-spacer>
-        <v-btn @click="handleCloseDialogCancel">Cancel</v-btn>
-        <v-btn @click="handleCloseDialogNoSave">Don't Save</v-btn>
-        <v-btn color="primary" @click="handleCloseDialogSave">Save</v-btn>
+        <v-btn @click="showSaveDialog = false">Cancel</v-btn>
+        <v-btn @click="closeActiveTab(false)">Don't Save</v-btn>
+        <v-btn color="primary" @click="closeActiveTab(true)">Save</v-btn>
       </v-card-actions>
     </v-card>
   </v-dialog>
@@ -315,11 +187,11 @@ const handleDragEnd = () => {
   <!-- Name Dialog for Unnamed Workflow -->
   <v-dialog v-model="showNameDialog" max-width="400" persistent>
     <v-card>
-      <v-card-title>Save Workflow</v-card-title>
+      <v-card-title>Name Workflow</v-card-title>
       <v-card-text>
         <p class="mb-4">Please enter a name for this workflow:</p>
         <v-text-field
-          v-model="dialogs.name.input"
+          v-model="nameDialogInput"
           label="Workflow Name"
           variant="outlined"
           density="compact"
@@ -334,7 +206,7 @@ const handleDragEnd = () => {
         <v-btn
           color="primary"
           @click="handleNameDialogConfirm"
-          :disabled="!dialogs.name.input.trim()"
+          :disabled="!nameDialogInput.trim()"
         >
           Save
         </v-btn>

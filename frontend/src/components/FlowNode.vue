@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Handle, Position } from '@vue-flow/core'
-import { NodeData, interfaceColor, interfaceHoverColor, basicType, isArrayType, InterfaceType } from '../types/nodes'
+import { Node, interfaceColor, interfaceHoverColor, basicType, isArrayType, InterfaceType } from '../types/node'
 
 interface Linking {
   active: boolean,
@@ -12,7 +12,7 @@ interface Linking {
 }
 
 interface Props {
-  nodeData: NodeData
+  nodeData: Node
   linking: Linking
   selected: boolean
 }
@@ -23,7 +23,9 @@ const props = defineProps<Props>()
 const nodeWidth = 360
 
 // Get max number of ports to align rows
-const maxPorts = computed(() => Math.max(props.nodeData.inputs.length, props.nodeData.outputs.length))
+const maxPorts = computed(
+  () => Math.max(props.nodeData.inputs.length, props.nodeData.outputs.length)
+)
 
 const linkable = (nodeId: number, portType: string, dataType: InterfaceType) => {
   if (!props.linking.active) return false
@@ -151,7 +153,7 @@ const isPropertySelf = (nodeId: number, portIndex: number) => {
                   linkable(nodeData.id, 'property', property.type)
                     || isPropertySelf(nodeData.id, index)
                     ? '' : 'handle-hidden'
-                  : property.linked ? '' : 'handle-unlinked',
+                  : property.links.length > 0 ? '' : 'handle-unlinked',
                 `handle-${basicType(property.type)}`,
                 isArrayType(property.type) ? 'handle-array' : '',
               ]"
@@ -165,7 +167,7 @@ const isPropertySelf = (nodeId: number, portIndex: number) => {
             density="compact"
             hide-details
             class="property-field"
-            :disabled="property.linked"
+            :disabled="property.links.length > 0"
           >
             <template v-slot:prepend-inner>
               <span class="property-prepend-inner">{{ property.name }}</span>

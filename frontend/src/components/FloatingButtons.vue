@@ -2,34 +2,20 @@
 import { ref, computed, nextTick, watch, inject } from 'vue'
 import {
   activeTabName,
-  activeTabId,
   activeWorkspace,
   activeWorkers,
-  isTabAttached,
-  getOtherTabNames,
-  addNewTab,
-  updateActiveTabName,
-  updateActiveWorkflow,
-  setActiveWorkflow,
-  saveTab,
-  deleteTab,
-  activeWorkflow
-} from '../stores/tabs'
-import {
-  type Workflow,
-  copyWorkflow,
-} from '../stores/workflow'
+  activeWorkflow,
+  saveActiveTab,
+  renameActiveTab,
+  deleteActiveTab
+} from '../models/tabs'
 import {
   formatRunNumbers,
   parseRunNumbers,
   validateRunNumbers,
 } from '../utils/runNumbers'
 import {
-  createWorkflow,
-  updateWorkflow as updateWorkflowService,
-  deleteWorkflow,
   listWorkflows,
-  workflowNameExists,
   executeWorkflow,
 } from '../api/workflow'
 import { useProgressWebSocket } from '../composables/useWebSocket'
@@ -56,27 +42,9 @@ const { connect } = useProgressWebSocket()
 const workersInput = ref<HTMLInputElement>()
 const renameError = ref('')
 const existingWorkflows = ref<string[]>([])
-const otherTabNames = ref<string[]>([])
 
-// Dialog states organized in a structured object
-const dialogs = ref({
-  // Name dialog for save/rename workflow
-  name: {
-    show: false,
-    title: '',
-    message: '',
-    input: '',
-    hasError: false
-  },
-  // Delete confirmation dialog
-  delete: {
-    show: false,
-    title: '',
-    message: '',
-    workflowName: '',
-    isAttached: false
-  }
-})
+
+const showDeleteDialog = ref(false)
 
 // Update workflow name when store changes
 watch(activeTabName, (newName) => {
@@ -88,61 +56,15 @@ const workflowDisplayName = computed(() => activeTabName.value || 'untitled')
 
 // Workflow functions
 const duplicateWorkflow = () => {
-  const currentWorkflow = JSON.parse(JSON.stringify(activeWorkflow.value))
-  addNewTab()
-  currentWorkflow.name = null
-  updateActiveWorkflow(currentWorkflow)
+  // const currentWorkflow = JSON.parse(JSON.stringify(activeWorkflow.value))
+  // addNewTab()
+  // currentWorkflow.name = null
+  // updateActiveWorkflow(currentWorkflow)
+  // showWorkflowMenu.value = false
+
+  // TODO
+  console.log("TODO: duplicate workflow")
   showWorkflowMenu.value = false
-}
-
-const saveWorkflow = async () => {
-  const workflowName = currentWorkflow.value?.trim()
-  const currentTabId = activeTabId.value
-  const isAttachedTab = isTabAttached(currentTabId)
-
-  try {
-    if (isAttachedTab) {
-      // Attached tab: just update
-      if (workflowName) {
-        await updateWorkflowService()
-      }
-    } else {
-      // Unattached tab
-      if (!workflowName) {
-        // Show dialog to enter workflow name
-        dialogs.value.name.title = 'Save Workflow'
-        dialogs.value.name.message = 'Please enter a name for this workflow:'
-        dialogs.value.name.input = ''
-        dialogs.value.name.hasError = false
-        dialogs.value.name.show = true
-        return
-      }
-
-      // Check if name already exists
-      const nameExists = await workflowNameExists(workflowName)
-      if (nameExists) {
-        // Name already exists, show dialog with current name
-        dialogs.value.name.title = 'Rename Workflow'
-        dialogs.value.name.message = `A workflow named "${workflowName}" already exists. Please choose a different name:`
-        dialogs.value.name.input = workflowName
-        dialogs.value.name.hasError = true
-        dialogs.value.name.show = true
-        return
-      }
-
-      // Name doesn't exist, proceed with save
-      // Set activeWorkflow first so createWorkflow uses the correct data
-      setActiveWorkflow(copyWorkflow(activeWorkflow.value as Workflow, workflowName))
-      await createWorkflow()
-      saveTab(currentTabId)
-    }
-
-    showWorkflowMenu.value = false
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Failed to save workflow'
-    showError(errorMessage)
-    showWorkflowMenu.value = false
-  }
 }
 
 const saveAsWorkflow = () => {
@@ -164,9 +86,6 @@ const renameWorkflow = async () => {
     isRenaming.value = false
     return
   }
-
-  // Get other tab names directly from store for validation
-  otherTabNames.value = getOtherTabNames()
 
   nextTick(() => {
     renameInput.value?.focus()
@@ -190,34 +109,16 @@ const validateAndFinishRename = async () => {
     return
   }
 
-  const isAttached = isTabAttached(activeTabId.value)
-
   try {
-    if (isAttached) {
-      // Check against existing workflow files
-      if (existingWorkflows.value.indexOf(newName) !== -1) {
-        renameError.value = 'A workflow with this name already exists'
-        return
-      }
-      // For attached tabs, create new and delete old via API
-      await handleRenameAttached(activeTabName.value || '', newName)
-      isRenaming.value = false
-      renameError.value = ''
-    } else {
-      // Check against other tab names
-      // Check against existing workflow files
-      if (existingWorkflows.value.indexOf(newName) !== -1) {
-        renameError.value = 'A workflow with this name already exists'
-        return
-      } else if (otherTabNames.value.indexOf(newName) !== -1) {
-        renameError.value = 'Another tab already has this name'
-        return
-      }
-      // Valid - update name directly
-      updateActiveTabName(newName)
-      isRenaming.value = false
-      renameError.value = ''
+    // Check against existing workflow files
+    if (existingWorkflows.value.indexOf(newName) !== -1) {
+      renameError.value = 'A workflow with this name already exists'
+      return
     }
+    // For attached tabs, create new and delete old via API
+    await renameActiveTab(newName)
+    isRenaming.value = false
+    renameError.value = ''
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Failed to rename workflow'
     showError(errorMessage)
@@ -231,136 +132,26 @@ const cancelRename = () => {
   currentWorkflow.value = activeTabName.value || ''
 }
 
-// Handle rename for attached tabs - create new workflow and delete old one
-const handleRenameAttached = async (oldName: string, newName: string) => {
-  try {
-    // Update workflow
-    setActiveWorkflow(copyWorkflow(activeWorkflow.value as Workflow, newName))
-
-    // Create new workflow with new name
-    await createWorkflow()
-
-    // Temporarily set activeTabName back to old name to delete it
-    updateActiveTabName(oldName)
-
-    // Delete old workflow
-    try {
-      await deleteWorkflow()
-    } catch (deleteError) {
-      console.warn('Failed to delete old workflow, but new workflow was created')
-      showError('Failed to delete old workflow, but new workflow was created')
-    } finally {
-      // Always restore the new name
-      updateActiveTabName(newName)
-    }
-
-    // Mark tab as saved
-    saveTab(activeTabId.value)
-
-    console.log('Workflow renamed successfully:', oldName, '->', newName)
-  } catch (error) {
-    // Revert name change on error
-    updateActiveTabName(oldName)
-    setActiveWorkflow(copyWorkflow(activeWorkflow.value as Workflow, oldName))
-    throw error
-  }
-}
-
 const handleDeleteWorkflow = () => {
-  const currentTabId = activeTabId.value
-  const workflowName = currentWorkflow.value
-  const isAttached = isTabAttached(currentTabId)
-
-  if (isAttached && workflowName) {
-    // Attached tab - set up delete confirmation for workflow
-    dialogs.value.delete.title = 'Delete Workflow'
-    dialogs.value.delete.message = `Are you sure you want to delete workflow "${workflowName}"? This will permanently delete the workflow file.`
-    dialogs.value.delete.workflowName = workflowName
-    dialogs.value.delete.isAttached = true
-  } else {
-    // Unattached tab - set up delete confirmation for unsaved tab
-    dialogs.value.delete.title = 'Close Unsaved Tab'
-    dialogs.value.delete.message = 'Are you sure you want to close this unsaved tab?'
-    dialogs.value.delete.workflowName = ''
-    dialogs.value.delete.isAttached = false
-  }
-
   // Show the delete confirmation dialog
-  dialogs.value.delete.show = true
+  showDeleteDialog.value = true
   showWorkflowMenu.value = false
-}
-
-// Dialog handlers
-const handleDialogConfirm = async () => {
-  const name = dialogs.value.name.input.trim()
-  if (!name) {
-    return // Empty name not allowed
-  }
-
-  try {
-    // Check if name already exists (for rename case)
-    const nameExists = await workflowNameExists(name)
-    if (nameExists) {
-      // Show error message and keep dialog open
-      dialogs.value.name.title = 'Rename Workflow'
-      dialogs.value.name.message = `A workflow named "${name}" already exists. Please choose a different name:`
-      dialogs.value.name.hasError = true
-      return
-    }
-
-    dialogs.value.name.show = false
-    dialogs.value.name.hasError = false
-
-    // Update the workflow name
-    updateActiveTabName(name)
-    currentWorkflow.value = name
-
-    // Set activeWorkflow first so createWorkflow uses the correct data
-    setActiveWorkflow(copyWorkflow(activeWorkflow.value as Workflow, name))
-    // Create the workflow
-    await createWorkflow()
-    saveTab(activeTabId.value)
-
-    showWorkflowMenu.value = false
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Failed to save workflow'
-    showError(errorMessage)
-    dialogs.value.name.hasError = true
-  }
-}
-
-const handleDialogCancel = () => {
-  dialogs.value.name.show = false
-  dialogs.value.name.hasError = false
-  dialogs.value.name.input = ''
 }
 
 // Delete dialog handlers
 const handleDeleteConfirm = async () => {
-  const currentTabId = activeTabId.value
-  const { workflowName, isAttached } = dialogs.value.delete
-
   // Hide the dialog
-  dialogs.value.delete.show = false
-
-  if (isAttached && workflowName) {
-    // Attached tab - delete workflow from server
-    try {
-      await deleteWorkflow()
-      // Close the tab after successful deletion
-      deleteTab(currentTabId)
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to delete workflow'
-      showError(errorMessage)
-    }
-  } else {
-    // Unattached tab - just close
-    deleteTab(currentTabId)
+  showDeleteDialog.value = false
+  try {
+    deleteActiveTab()
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Failed to delete workflow'
+    showError(errorMessage)
   }
 }
 
 const handleDeleteCancel = () => {
-  dialogs.value.delete.show = false
+  showDeleteDialog.value = false
 }
 
 const startEditWorkspace = () => {
@@ -407,7 +198,7 @@ const cancelEditWorkers = () => {
 const runWorkflow = async () => {
   try {
     // Step 1: Save the workflow (saveWorkflow handles all validation)
-    await saveWorkflow()
+    await saveActiveTab()
 
     // Step2: Check if workspace and max_workers are set
     if (!workspaceName.value || !workersCount.value) {
@@ -467,14 +258,15 @@ const runNumberRules = [
 
 const handleRunNumberSelection = () => {
   // Parse run numbers and update active workflow
-  const parsedRuns = parseRunNumbers(runNumbers.value)
+  // const parsedRuns = parseRunNumbers(runNumbers.value)
 
   // Update active workflow with both formats
   if (activeWorkflow.value) {
-    activeWorkflow.value.runList = parsedRuns
-    activeWorkflow.value.runNumbers = formatRunNumbers(parsedRuns)
-    console.log('Updated workflow runList:', parsedRuns)
-    console.log('Updated workflow runNumbers:', activeWorkflow.value.runNumbers)
+    activeWorkflow.value.changeRunListStr(runNumbers.value)
+    // activeWorkflow.value.runList = parsedRuns
+    // activeWorkflow.value.runListStr = formatRunNumbers(parsedRuns)
+    console.log('Updated workflow runList:', parseRunNumbers(runNumbers.value))
+    console.log('Updated workflow runNumbers:', activeWorkflow.value.runListStr)
   }
 
   showRunNumberSheet.value = false
@@ -497,8 +289,6 @@ watch(activeWorkflow, (newWorkflow) => {
     runNumbers.value = formatRunNumbers(newWorkflow.runList)
   }
 }, { immediate: true })
-
-
 
 </script>
 
@@ -539,7 +329,7 @@ watch(activeWorkflow, (newWorkflow) => {
             </template>
             <v-list-item-title>Duplicate</v-list-item-title>
           </v-list-item>
-          <v-list-item @click="saveWorkflow">
+          <v-list-item @click="saveActiveTab">
             <template v-slot:prepend>
               <v-icon>mdi-content-save</v-icon>
             </template>
@@ -716,42 +506,12 @@ watch(activeWorkflow, (newWorkflow) => {
       <v-progress-circular color="primary" indeterminate class="mt-2" v-show="isExecuting"></v-progress-circular>
     </div>
 
-    <!-- Workflow Name Dialog -->
-    <v-dialog v-model="dialogs.name.show" max-width="400" persistent>
-      <v-card>
-        <v-card-title>{{ dialogs.name.title }}</v-card-title>
-        <v-card-text>
-          <p class="mb-4" :class="dialogs.name.hasError ? 'text-error' : ''">{{ dialogs.name.message }}</p>
-          <v-text-field
-            v-model="dialogs.name.input"
-            label="Workflow Name"
-            variant="outlined"
-            density="compact"
-            autofocus
-            @keyup.enter="handleDialogConfirm"
-            @keyup.escape="handleDialogCancel"
-          ></v-text-field>
-        </v-card-text>
-        <v-card-actions>
-          <v-spacer></v-spacer>
-          <v-btn @click="handleDialogCancel">Cancel</v-btn>
-          <v-btn
-            color="primary"
-            @click="handleDialogConfirm"
-            :disabled="!dialogs.name.input.trim()"
-          >
-            Save
-          </v-btn>
-        </v-card-actions>
-      </v-card>
-    </v-dialog>
-
     <!-- Delete Confirmation Dialog -->
-    <v-dialog v-model="dialogs.delete.show" max-width="400" persistent>
+    <v-dialog v-model="showDeleteDialog" max-width="400" persistent>
       <v-card>
-        <v-card-title>{{ dialogs.delete.title }}</v-card-title>
+        <v-card-title>Confirm delete</v-card-title>
         <v-card-text>
-          <p>{{ dialogs.delete.message }}</p>
+          <p>{{ `Are you sure you want to delete workflow "${currentWorkflow}"? This will permanently delete the workflow file.` }}</p>
         </v-card-text>
         <v-card-actions>
           <v-spacer></v-spacer>
@@ -760,7 +520,7 @@ watch(activeWorkflow, (newWorkflow) => {
             color="error"
             @click="handleDeleteConfirm"
           >
-            {{ dialogs.delete.isAttached ? 'Delete' : 'Close' }}
+            Delete
           </v-btn>
         </v-card-actions>
       </v-card>

@@ -20,7 +20,7 @@ from pathlib import Path
 
 from atflow.node_registry import NodeRegistry
 from atflow.nodes import *  # Import all nodes to register them
-from atflow.progress_store import (
+from atflow.progress.progress_store import (
     progress_store,
     ExecutionStatus,
 )
@@ -388,7 +388,7 @@ async def get_execution_status(execution_id: str):
 @app.get("/health")
 async def health_check():
 	"""Health check endpoint."""
-	from .progress_store import workflow_queue
+	from .progress.progress_store import workflow_queue
 	return {
 		"status": "healthy",
 		"nodes_registered": len(NodeRegistry._registry),

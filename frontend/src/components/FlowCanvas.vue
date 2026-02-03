@@ -9,7 +9,8 @@ import {
   activeWorkflowRemoveNode,
   activeWorkflowRemoveLink,
   activeWorkflowUndo,
-  activeWorkflowRedo
+  activeWorkflowRedo,
+  saveActiveTab
 } from '../models/tabs'
 import { type Link, createLinkFromConnection } from '../types/link'
 import { interfaceColor, InterfaceType } from '../types/node'
@@ -168,6 +169,17 @@ const handleKeyDown = (event: KeyboardEvent) => {
 
   const isRedoKey = (event.key === 'r' && !event.ctrlKey && !event.metaKey && !event.altKey) ||
                    ((event.key === 'y' && (event.ctrlKey || event.metaKey)) && !event.altKey)
+
+  // Check for save shortcuts: Ctrl+S or 'w'
+  const isSaveKey = (event.key === 's' && (event.ctrlKey || event.metaKey)) ||
+                    (event.key === 'w' && !event.ctrlKey && !event.metaKey && !event.altKey)
+
+  // Check for save shortcuts first
+  if (isSaveKey) {
+    event.preventDefault()
+    saveActiveTab()
+    return
+  }
 
   // Check for undo shortcuts: 'u' or 'Ctrl+z'
   if (isUndoKey) {

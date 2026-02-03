@@ -16,7 +16,7 @@ import uuid
 from datetime import datetime
 
 from .processor import Processor
-from .collector import zmq_collector_tqdm, zmq_collector_store
+from .progress.collector import zmq_collector_tqdm, zmq_collector_store
 from .nodes import *
 from .workflow import Workflow
 
@@ -161,7 +161,7 @@ def start_full_system(host="0.0.0.0", port=8000, reload=False):
 
 	try:
 		# Initialize server with auto-created queue
-		from .progress_store import get_workflow_queue
+		from .progress.progress_store import get_workflow_queue
 		workflow_queue = get_workflow_queue()
 
 		collector_thread = threading.Thread(target=zmq_collector_store)

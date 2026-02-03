@@ -28,6 +28,7 @@ dependencies = [
     "uvicorn[standard]>=0.40.0",
     "scikit-build-core>=0.11.6",
     "nanobind>=2.11.0",
+    "polars>=1.37.1",
 ]
 
 [project.urls]

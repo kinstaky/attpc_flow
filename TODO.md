@@ -7,19 +7,19 @@
 - [x] unify workflow graph edit command: pop_node, push_node, insert_node, delete_node, ..link, move node,
 - [x] change to unsave when edit node property, worksapce, core, run
 
-## processor
-- [x] special treatment to "run_loader", less discard
-- [x] adapt workflow in processor
-
-## tabs
+### tabs
 - [ ] welcome page for no tabs
 - [ ] test rename, delete, save tab
 - [ ] implement copy tab
 - [ ] implement saveas tab
 
-## nodes
+### nodes
 - [ ] attpc_merger rust->python
 - [ ] check merged
+
+## processor
+- [x] special treatment to "run_loader", less discard
+- [x] adapt workflow in processor
 
 ## framework
 - [ ] run statiscs (time, size, trigger...)

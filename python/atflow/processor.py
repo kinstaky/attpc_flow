@@ -11,7 +11,7 @@ import json
 
 from .node_registry import NodeRegistry
 from .workflow import Workflow
-from .progress_store import ProgressStore
+from .progress.progress_store import ProgressStore
 
 # Set up logger
 logger = logging.getLogger(__name__)

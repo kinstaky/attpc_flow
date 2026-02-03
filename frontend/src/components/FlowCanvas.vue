@@ -1,12 +1,23 @@
 <script setup lang="ts">
-import { computed, reactive } from 'vue'
-import { NodeDragEvent, Connection, VueFlow, OnConnectStartParams } from '@vue-flow/core'
+import { computed, reactive, onMounted, onUnmounted } from 'vue'
+import { NodeDragEvent, Connection, VueFlow, OnConnectStartParams, useVueFlow } from '@vue-flow/core'
 import FlowNode from './FlowNode.vue'
-import { activeWorkflow, activeWorkflowAddLink, activeWorkflowMoveNode } from '../models/tabs'
+import {
+  activeWorkflow,
+  activeWorkflowAddLink,
+  activeWorkflowMoveNode,
+  activeWorkflowRemoveNode,
+  activeWorkflowRemoveLink,
+  activeWorkflowUndo,
+  activeWorkflowRedo
+} from '../models/tabs'
 import { type Link, createLinkFromConnection } from '../types/link'
 import { interfaceColor, InterfaceType } from '../types/node'
 import '@vue-flow/core/dist/style.css'
 import '@vue-flow/core/dist/theme-default.css'
+
+// Use VueFlow composable to access selection state
+const { getSelectedNodes, getSelectedEdges } = useVueFlow()
 
 // Convert workflow nodes to Vue Flow format
 const vueFlowNodes = computed(() => {
@@ -133,6 +144,77 @@ const handleConnectEnd = (_event: any) => {
   linking.portType = ""
   linking.dataType = "int"
 }
+
+// Handle keyboard delete
+const handleKeyDown = (event: KeyboardEvent) => {
+  // Check if the event target is an input, textarea, or contenteditable element
+  const target = event.target as HTMLElement
+  if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.contentEditable === 'true') {
+    return // Don't handle keyboard shortcuts when editing text
+  }
+
+  // Get selected nodes and edges to check if anything is selected
+  const selectedNodes = getSelectedNodes.value
+  const selectedEdges = getSelectedEdges.value
+  const hasSelection = selectedNodes.length > 0 || selectedEdges.length > 0
+
+  // For delete operations, only proceed if there's a selection
+  const isDeleteKey = event.key === 'Delete' || event.key === 'Backspace' ||
+                     (event.key === 'd' && !event.ctrlKey && !event.metaKey && !event.altKey)
+
+  // For undo/redo, we can allow them without selection
+  const isUndoKey = (event.key === 'u' && !event.ctrlKey && !event.metaKey && !event.altKey) ||
+                   (event.key === 'z' && (event.ctrlKey || event.metaKey) && !event.altKey)
+
+  const isRedoKey = (event.key === 'r' && !event.ctrlKey && !event.metaKey && !event.altKey) ||
+                   ((event.key === 'y' && (event.ctrlKey || event.metaKey)) && !event.altKey)
+
+  // Check for undo shortcuts: 'u' or 'Ctrl+z'
+  if (isUndoKey) {
+    event.preventDefault()
+    activeWorkflowUndo()
+    return
+  }
+
+  // Check for redo shortcuts: 'r' or 'Ctrl+y'
+  if (isRedoKey) {
+    event.preventDefault()
+    activeWorkflowRedo()
+    return
+  }
+
+  // Check if delete key, backspace, or 'd' is pressed (only if there's a selection)
+  if (isDeleteKey && hasSelection) {
+    // Prevent default behavior
+    event.preventDefault()
+
+    // Delete selected edges first
+    selectedEdges.forEach(edge => {
+      const linkId = parseInt(edge.id)
+      if (!isNaN(linkId)) {
+        activeWorkflowRemoveLink(linkId)
+      }
+    })
+
+    // Then delete selected nodes
+    selectedNodes.forEach(node => {
+      const nodeId = parseInt(node.id)
+      if (!isNaN(nodeId)) {
+        activeWorkflowRemoveNode(nodeId)
+      }
+    })
+  }
+}
+
+// Add keyboard event listener on mount
+onMounted(() => {
+  window.addEventListener('keydown', handleKeyDown)
+})
+
+// Remove keyboard event listener on unmount
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeyDown)
+})
 
 </script>
 

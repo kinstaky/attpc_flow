@@ -7,7 +7,8 @@ import {
   activeWorkflow,
   saveActiveTab,
   renameActiveTab,
-  deleteActiveTab
+  deleteActiveTab,
+  unsaveActiveTab
 } from '../models/tabs'
 import {
   formatRunNumbers,
@@ -167,6 +168,7 @@ const finishEditWorkspace = () => {
   if (activeWorkflow.value) {
     activeWorkflow.value.workspace = workspaceName.value
   }
+  unsaveActiveTab()
   console.log('Workspace path updated to:', activeWorkspace.value)
 }
 
@@ -188,6 +190,7 @@ const finishEditWorkers = () => {
   if (activeWorkflow.value) {
     activeWorkflow.value.workers = workersCount.value ?? 2
   }
+  unsaveActiveTab()
   console.log('Workers count updated to:', workersCount.value ?? 2)
 }
 
@@ -263,6 +266,7 @@ const handleRunNumberSelection = () => {
   // Update active workflow with both formats
   if (activeWorkflow.value) {
     activeWorkflow.value.changeRunListStr(runNumbers.value)
+    unsaveActiveTab()
     // activeWorkflow.value.runList = parsedRuns
     // activeWorkflow.value.runListStr = formatRunNumbers(parsedRuns)
     console.log('Updated workflow runList:', parseRunNumbers(runNumbers.value))

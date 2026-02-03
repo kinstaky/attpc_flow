@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { Handle, Position } from '@vue-flow/core'
 import { Node, interfaceColor, interfaceHoverColor, basicType, isArrayType, InterfaceType } from '../types/node'
+import { unsaveActiveTab } from '../models/tabs'
 
 interface Linking {
   active: boolean,
@@ -18,6 +19,11 @@ interface Props {
 }
 
 const props = defineProps<Props>()
+
+// Handle property changes
+const handlePropertyChange = () => {
+  unsaveActiveTab()
+}
 
 // Constants for node layout
 const nodeWidth = 360
@@ -168,6 +174,7 @@ const isPropertySelf = (nodeId: number, portIndex: number) => {
             hide-details
             class="property-field"
             :disabled="property.links.length > 0"
+            @input="handlePropertyChange"
           >
             <template v-slot:prepend-inner>
               <span class="property-prepend-inner">{{ property.name }}</span>

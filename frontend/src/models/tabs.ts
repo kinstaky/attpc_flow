@@ -43,7 +43,9 @@ export const activeWorkers = computed(() => activeTab.value?.workflow.workers ||
 
 // Tabs management functions
 export const setActiveTab = (tabId: string) => {
-  tabState.activeTabId = tabId
+  if (tabState.tabs.findIndex(t => t.id === tabId) != -1) {
+    tabState.activeTabId = tabId
+  }
 }
 
 // Tab management functions
@@ -69,10 +71,13 @@ export const closeActiveTab = (save: boolean = false) => {
     saveActiveTab()
   }
   if (tabState.tabs.length > 1) {
-    const index = tabs.value.findIndex(t => t.id === activeTab.value!.id)
+    const index = tabState.tabs.findIndex(t => t.id === activeTab.value!.id)
     if (index !== -1) {
       tabState.tabs.splice(index, 1)
-      setActiveTab(tabs.value[tabs.value.length-1].id)
+      // Set the active tab to the last remaining tab
+      if (tabState.tabs.length > 0) {
+        tabState.activeTabId = tabState.tabs[tabState.tabs.length - 1].id
+      }
     }
   } else {
     tabState.tabs = []
@@ -116,11 +121,17 @@ export const renameActiveTab = async (name: string) => {
     // tab.workflow.name = oldName
     activeWorkflow.value?.changeName(oldName)
   }
+  unsaveActiveTab()
 }
 
 export const unsaveActiveTab = () => {
   const tab = tabState.tabs.find(t => t.id === activeTab.value!.id)
   if (tab) tab.saved = false
+}
+
+export const isTabSaved = (tabId: string): boolean => {
+  const tab = tabState.tabs.find(t => t.id === tabId)
+  return tab?.saved || false
 }
 
 export const activeWorkflowAddNode = (node: Node, bind=false) => {
@@ -129,20 +140,14 @@ export const activeWorkflowAddNode = (node: Node, bind=false) => {
   if (!tab) return
   tab.workflow.pushNode(node)
   tab.operationStack.push({
-    redo: {
-      call: tab.workflow.pushNode,
-      parameters: [node],
-    },
-    undo: {
-      call: tab.workflow.popNode,
-      parameters: [],
-    },
+    redo: () => tab.workflow.pushNode(node),
+    undo: () => tab.workflow.popNode(),
     bind: bind,
   })
   tab.saved = false
 }
 
-export const activeWorkflowDeleteNode = (nodeId: number, bind=false) => {
+export const activeWorkflowRemoveNode = (nodeId: number, bind=false) => {
   if (!activeTab.value) return
   const tab = tabState.tabs.find(t => t.id === activeTab.value!.id)
   if (!tab) return
@@ -158,14 +163,8 @@ export const activeWorkflowDeleteNode = (nodeId: number, bind=false) => {
   const removed = tab.workflow.removeNode(nodeId)
   if (!removed) return
   tab.operationStack.push({
-    redo: {
-      call: tab.workflow.removeNode,
-      parameters: [nodeId]
-    },
-    undo: {
-      call: tab.workflow.insertNode,
-      parameters: removed
-    },
+    redo: () => tab.workflow.removeNode(nodeId),
+    undo: () => tab.workflow.insertNode(removed[0], removed[1]),
     bind: bind,
   })
   tab.saved = false
@@ -178,14 +177,8 @@ export const activeWorkflowMoveNode = (nodeId: number, position: Position, bind=
   const oldPosition = tab.workflow.moveNode(nodeId, position)
   if (!oldPosition) return
   tab.operationStack.push({
-    redo: {
-      call: tab.workflow.moveNode,
-      parameters: [nodeId, position]
-    },
-    undo: {
-      call: tab.workflow.moveNode,
-      parameters: [nodeId, oldPosition]
-    },
+    redo: () => tab.workflow.moveNode(nodeId, position),
+    undo: () => tab.workflow.moveNode(nodeId, oldPosition),
     bind: bind,
   })
   tab.saved = false
@@ -197,14 +190,8 @@ export const activeWorkflowAddLink = (link: Link, bind=false) => {
   if (!tab) return
   tab.workflow.pushLink(link)
   tab.operationStack.push({
-    redo: {
-      call: tab.workflow.pushLink,
-      parameters: [link]
-    },
-    undo: {
-      call: tab.workflow.popLink,
-      parameters: []
-    },
+    redo: () => tab.workflow.pushLink(link),
+    undo: () => tab.workflow.popLink(),
     bind: bind,
   })
   tab.saved = false
@@ -217,24 +204,28 @@ export const activeWorkflowRemoveLink = (linkId: number, bind=false) => {
   const removed = tab.workflow.removeLink(linkId)
   if (!removed) return
   tab.operationStack.push({
-    redo: {
-      call: tab.workflow.removeLink,
-      parameters: [linkId]
-    },
-    undo: {
-      call: tab.workflow.insertLink,
-      parameters: removed
-    },
+    redo: () => tab.workflow.removeLink(linkId),
+    undo: () => tab.workflow.insertLink(removed[0], removed[1]),
     bind: bind,
   })
   tab.saved = false
 }
 
-export const isTabSaved = (tabId: string): boolean => {
-  const tab = tabState.tabs.find(t => t.id === tabId)
-  return tab?.saved || false
+export const activeWorkflowUndo = () => {
+  if (!activeTab.value) return
+  const tab = tabState.tabs.find(t => t.id === activeTab.value!.id)
+  if (!tab) return
+  tab.operationStack.undo()
+  tab.saved = false
 }
 
+export const activeWorkflowRedo = () => {
+  if (!activeTab.value) return
+  const tab = tabState.tabs.find(t => t.id === activeTab.value!.id)
+  if (!tab) return
+  tab.operationStack.redo()
+  tab.saved = false
+}
 
 // function updateState(tab: Tab) {
 //   if (tab.state === TabState.ATTACHED_SAVED) {

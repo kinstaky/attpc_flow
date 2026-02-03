@@ -1,11 +1,11 @@
 # Todo
 ## UI
 - [x] beautify task progress
-- [ ] delete node, delete link
+- [x] delete node, delete link
 - [x] all tab MUST attach to file
-- [ ] undo and redo
+- [x] undo and redo
 - [x] unify workflow graph edit command: pop_node, push_node, insert_node, delete_node, ..link, move node,
-- [ ] change to unsave when edit node property, worksapce, core, run
+- [x] change to unsave when edit node property, worksapce, core, run
 
 ## processor
 - [x] special treatment to "run_loader", less discard

@@ -1,22 +1,11 @@
-
-export interface Operation<T extends any[] = [], R = any> {
-	call: (...params: T) => R,
-	parameters: T,
-}
-
-export interface OperationPair<
-	Tredo extends any[] = [],
-	Tundo extends any[] = [],
-	Rredo = any,
-	Rundo = any,
-> {
-	redo: Operation<Tredo, Rredo>,
-	undo: Operation<Tundo, Rundo>,
+export interface OperationPair {
+	redo: () => void,
+	undo: () => void,
 	bind: boolean,
 }
 
 export class OperationStack {
-	private stack: OperationPair<any[], any[], any, any>[] = [];
+	private stack: OperationPair[] = [];
 	private top: number = 0;
 
 	constructor() {
@@ -25,9 +14,7 @@ export class OperationStack {
 	}
 
 	// push new operation, find pair from register and push pair to stack at top, delete things behind stack
-	push<Tredo extends any[], Tundo extends any[], Rredo = any, Rundo = any>(
-		pair: OperationPair<Tredo, Tundo, Rredo, Rundo>
-	): void {
+	push(pair: OperationPair): void {
 		// Remove any operations after current top (new branch)
 		this.stack = this.stack.slice(0, this.top)
 		// Add new operation pair at current top position
@@ -40,12 +27,12 @@ export class OperationStack {
 	redo(): void {
 		if (this.top < this.stack.length) {
 			const operation = this.stack[this.top]
-			operation.redo.call(...operation.redo.parameters)
+			operation.redo()
 			this.top++
 		}
 		while (this.top < this.stack.length && this.stack[this.top-1].bind) {
 			const operation = this.stack[this.top]
-			operation.redo.call(...operation.redo.parameters)
+			operation.redo()
 			this.top++
 		}
 	}
@@ -55,12 +42,12 @@ export class OperationStack {
 		if (this.top > 0) {
 			this.top--
 			const operation = this.stack[this.top]
-			operation.undo.call(...operation.undo.parameters)
+			operation.undo()
 		}
 		while (this.top > 0 && this.stack[this.top-1].bind) {
 			this.top--
 			const operation = this.stack[this.top]
-			operation.undo.call(...operation.undo.parameters)
+			operation.undo()
 		}
 	}
 

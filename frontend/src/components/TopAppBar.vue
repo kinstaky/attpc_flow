@@ -1,13 +1,12 @@
 <script setup lang="ts">
-import { ref, computed, inject } from 'vue'
+import { ref, inject, computed } from 'vue'
 import {
   tabs,
   setActiveTab,
-  activeTabName,
   activeTabId,
   isTabSaved,
   closeActiveTab,
-  createTab
+  createTab,
 } from '../models/tabs'
 import { createWorkflow, workflowNameExists } from '../api/workflow'
 import { Workflow } from '../models/workflow'
@@ -15,6 +14,14 @@ import { Workflow } from '../models/workflow'
 // Inject error handler from parent
 const showError = inject<(message: string) => void>('showError', (msg: string) => {
   console.error('Error (no handler):', msg)
+})
+
+// Create a computed property for v-model
+const activeTabModel = computed({
+  get: () => activeTabId.value,
+  set: (value: string) => {
+    setActiveTab(value)
+  }
 })
 
 // Drag and drop state
@@ -25,16 +32,19 @@ const nameDialogInput = ref('')
 const showSaveDialog = ref(false)
 const showNameDialog = ref(false)
 
-// Writable computed for v-tabs v-model
-const activeTabModel = computed({
-  get: () => activeTabId.value,
-  set: (value: string) => {
-    // Ensure the tab exists before setting it as active
-    if (tabs.value.some(tab => tab.id === value)) {
-      setActiveTab(value)
-    }
+const handleCloseTab = (event?: MouseEvent) => {
+  event?.preventDefault()
+  if (activeTabId.value && !isTabSaved(activeTabId.value)) {
+    showSaveDialog.value = true
+  } else {
+    closeActiveTab()
   }
-})
+}
+
+const handleCloseDialogAction = (save: boolean) => {
+  closeActiveTab(save)
+  showSaveDialog.value = false
+}
 
 // Name dialog handlers
 const handleNameDialogConfirm = async () => {
@@ -115,8 +125,8 @@ const handleDragEnd = () => {
         <v-tabs
           v-model="activeTabModel"
           density="compact"
-          hide-slider
           class="workflow-tabs"
+          nav
         >
           <v-tab
             v-for="tab in tabs"
@@ -124,14 +134,13 @@ const handleDragEnd = () => {
             :value="tab.id"
             class="custom-tab"
             draggable="true"
-            @click="setActiveTab(tab.id)"
             @dragstart="handleDragStart($event, tab.id)"
             @dragover="handleDragOver"
             @drop="handleDrop($event, tab.id)"
             @dragend="handleDragEnd"
           >
             <div class="d-flex align-center ga-2">
-              <span>{{ activeTabName }}</span>
+              <span>{{ tab.id }}</span>
               <span
                 v-if="!isTabSaved(tab.id)"
                 class="unsaved-indicator"
@@ -142,7 +151,7 @@ const handleDragEnd = () => {
                 variant="text"
                 size="x-small"
                 v-if="activeTabId === tab.id"
-                @click="showSaveDialog = true"
+                @click="handleCloseTab"
                 class="ml-0.5 tab-delete-btn"
               ></v-btn>
             </div>
@@ -178,8 +187,8 @@ const handleDragEnd = () => {
       <v-card-actions>
         <v-spacer></v-spacer>
         <v-btn @click="showSaveDialog = false">Cancel</v-btn>
-        <v-btn @click="closeActiveTab(false)">Don't Save</v-btn>
-        <v-btn color="primary" @click="closeActiveTab(true)">Save</v-btn>
+        <v-btn @click="handleCloseDialogAction(false)">Don't Save</v-btn>
+        <v-btn color="primary" @click="handleCloseDialogAction(true)">Save</v-btn>
       </v-card-actions>
     </v-card>
   </v-dialog>

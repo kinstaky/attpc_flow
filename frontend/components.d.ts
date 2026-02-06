@@ -16,6 +16,7 @@ declare module 'vue' {
     FloatingButtons: typeof import('./src/components/FloatingButtons.vue')['default']
     FlowCanvas: typeof import('./src/components/FlowCanvas.vue')['default']
     FlowNode: typeof import('./src/components/FlowNode.vue')['default']
+    RunSelector: typeof import('./src/components/RunSelector.vue')['default']
     SideNav: typeof import('./src/components/SideNav.vue')['default']
     TopAppBar: typeof import('./src/components/TopAppBar.vue')['default']
   }

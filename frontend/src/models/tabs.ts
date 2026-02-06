@@ -1,7 +1,7 @@
 import { reactive, computed } from 'vue'
 import { type Node, type Position } from '../types/node'
 import { type Link } from '../types/link'
-import { Workflow } from '../models/workflow'
+import { Workflow, type WorkflowRun } from '../models/workflow'
 import { OperationStack } from './operationStack'
 import {
   getWorkflow,
@@ -134,6 +134,30 @@ export const isTabSaved = (tabId: string): boolean => {
   return tab?.saved || false
 }
 
+export const activeWorkflowChangeWorkspace = (workspace: string | null) => {
+  if (!activeTab.value) return
+  const tab = tabState.tabs.find(t => t.id === activeTab.value!.id)
+  if (!tab) return
+  tab.workflow.changeWorkspace(workspace)
+  unsaveActiveTab()
+}
+
+export const activeWorkflowChangeWorkers = (worker: number) => {
+  if (!activeTab.value) return
+  const tab = tabState.tabs.find(t => t.id === activeTab.value!.id)
+  if (!tab) return
+  tab.workflow.changeWorkers(worker)
+  unsaveActiveTab()
+}
+
+export const activeWorkflowChangeRun = (run: WorkflowRun) => {
+  if (!activeTab.value) return
+  const tab = tabState.tabs.find(t => t.id === activeTab.value!.id)
+  if (!tab) return
+  tab.workflow.changeRun(run)
+  unsaveActiveTab()
+}
+
 export const activeWorkflowAddNode = (node: Node, bind=false) => {
   if (!activeTab.value) return
   const tab = tabState.tabs.find(t => t.id === activeTab.value!.id)
@@ -226,100 +250,3 @@ export const activeWorkflowRedo = () => {
   tab.operationStack.redo()
   tab.saved = false
 }
-
-// function updateState(tab: Tab) {
-//   if (tab.state === TabState.ATTACHED_SAVED) {
-//     tab.state = TabState.ATTACHED_UNSAVED
-//   }
-// }
-
-// export const updateActiveWorkflow = (workflow: Workflow) => {
-//   const tab = activeTab.value
-//   if (tab) {
-//     tab.workflow = workflow
-//     updateState(tab)
-//   }
-// }
-
-// export const setActiveWorkflow = (workflow: Workflow) => {
-//   const tab = activeTab.value
-//   if (tab) {
-//     tab.workflow = workflow
-//     updateState(tab)
-//   }
-// }
-
-// export const addNewTab = () => {
-//   tabCounter++
-//   const newWorkflow = defaultWorkflow(activeWorkspace.value)
-//   const newTab: Tab = {
-//     id: `tab${tabCounter}`,
-//     state: TabState.UNATTACHED,
-//     workflow: newWorkflow,
-//   }
-//   tabState.tabs.push(newTab)
-//   setActiveTab(newTab.id)
-// }
-
-// export const deleteTab = (tabId: string) => {
-//   if (tabState.tabs.length > 1) {
-//     const index = tabState.tabs.findIndex(t => t.id === tabId)
-//     if (index !== -1) {
-//       tabState.tabs.splice(index, 1)
-//       // Select previous tab (to the left), or first tab if deleting the first one
-//       if (index > 0) {
-//         const prevTab = tabState.tabs[index - 1]
-//         if (prevTab) {
-//           setActiveTab(prevTab.id)
-//         }
-//       } else {
-//         // If we're deleting the first tab, select the new first tab
-//         const firstTab = tabState.tabs[0]
-//         if (firstTab) {
-//           setActiveTab(firstTab.id)
-//         }
-//       }
-//     }
-//   } else if (tabState.tabs.length === 1) {
-//     // If this is the only tab, remove it and create a new empty one
-//     addNewTab()
-//     tabState.tabs.splice(0, 1)
-//   }
-// }
-
-// export const getTabName = (tabId: string): string => {
-//   const tab = tabState.tabs.find(t => t.id === tabId)
-//   return tab?.workflow.name || 'untitled'
-// }
-
-// export const isTabNameUsed = (name: string, excludeTabId?: string): boolean => {
-//   return tabState.tabs.some(tab =>
-//     tab.workflow.name === name && tab.id !== excludeTabId
-//   )
-// }
-
-// export const getOtherTabNames = (): string[] => {
-//   return tabState.tabs
-//     .filter(tab => tab.id !== tabState.activeTabId && tab.workflow.name !== null)
-//     .map(tab => tab.workflow.name!)
-// }
-
-// // Attachment functions
-// export const saveTab = (tabId: string) => {
-//   const tab = tabState.tabs.find(t => t.id === tabId)
-//   if (tab) {
-//     tab.state = TabState.ATTACHED_SAVED
-//   }
-// }
-
-// export const isTabAttached = (tabId: string): boolean => {
-//   const tab = tabState.tabs.find(t => t.id === tabId)
-//   return tab?.state !== TabState.UNATTACHED || false
-// }
-
-
-
-// export const isTabEmpty = (tabId: string): boolean => {
-//   const tab = tabState.tabs.find(t => t.id === tabId)
-//   return tab?.workflow.name === null
-// }

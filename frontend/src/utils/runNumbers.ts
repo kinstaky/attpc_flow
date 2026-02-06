@@ -10,6 +10,9 @@
 export function formatRunNumbers(runList: number[]): string {
   if (runList.length === 0) return ''
 
+  // sort from small to big
+  runList.sort((a, b) => a - b)
+
   // Group consecutive numbers into ranges
   const ranges: string[] = []
   let start = runList[0]
@@ -24,6 +27,9 @@ export function formatRunNumbers(runList: number[]): string {
       // Break in sequence
       if (start === prev) {
         ranges.push(start.toString())
+      } else if (start === prev - 1) {
+        ranges.push(start.toString())
+        ranges.push(prev.toString())
       } else {
         ranges.push(`${start}-${prev}`)
       }
@@ -35,6 +41,9 @@ export function formatRunNumbers(runList: number[]): string {
   // Add last range
   if (start === prev) {
     ranges.push(start.toString())
+  } else if (start === prev - 1) {
+    ranges.push(start.toString())
+    ranges.push(prev.toString())
   } else {
     ranges.push(`${start}-${prev}`)
   }

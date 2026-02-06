@@ -1,9 +1,34 @@
 <script setup lang="ts">
-import { ref, provide } from 'vue'
-import TopAppBar from './TopAppBar.vue'
-import SideNav from './SideNav.vue'
-import FloatingButtons from './FloatingButtons.vue'
-import FlowCanvas from './FlowCanvas.vue'
+import { ref, provide, defineAsyncComponent } from 'vue'
+
+// Use defineAsyncComponent with loading states
+const TopAppBar = defineAsyncComponent({
+  loader: () => import('./TopAppBar.vue'),
+  loadingComponent: () => 'Loading TopAppBar...',
+  delay: 200,
+  timeout: 3000
+})
+
+const SideNav = defineAsyncComponent({
+  loader: () => import('./SideNav.vue'),
+  loadingComponent: () => 'Loading SideNav...',
+  delay: 200,
+  timeout: 3000
+})
+
+const FloatingButtons = defineAsyncComponent({
+  loader: () => import('./FloatingButtons.vue'),
+  loadingComponent: () => null, // No loading state for floating buttons as they're non-critical
+  delay: 0,
+  timeout: 3000
+})
+
+const FlowCanvas = defineAsyncComponent({
+  loader: () => import('./FlowCanvas.vue'),
+  loadingComponent: () => 'Loading Canvas...',
+  delay: 200,
+  timeout: 3000
+})
 
 // Snackbar state
 const snackbar = ref(false)

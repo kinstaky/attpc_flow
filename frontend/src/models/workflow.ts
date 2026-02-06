@@ -1,15 +1,18 @@
 import { type Node, type InterfaceType, type Position } from '../types/node'
 import { type Link } from '../types/link'
 import { type Connection } from '@vue-flow/core'
-import { parseRunNumbers } from '../utils/runNumbers'
+
+export interface WorkflowRun {
+  runs: number[];
+  tags: string[];
+}
 
 // Workflow interface
 export class Workflow {
   name: string;
   workspace: string | null;
   workers: number;
-  runList: number[];
-  runListStr: string;
+  run: WorkflowRun;
   nodes: Node[];
   links: Link[];
   lastNode: number;
@@ -19,7 +22,7 @@ export class Workflow {
     name: string,
     workspace: string | null = null,
     workers: number = 2,
-    runListStr: string = '',
+    run: WorkflowRun = {runs: [], tags: []},
     nodes: Node[] = [],
     links: Link[] = [],
     lastNode: number = 0,
@@ -28,8 +31,7 @@ export class Workflow {
     this.name = name
     this.workspace = workspace || null
     this.workers = workers
-    this.runListStr = runListStr
-    this.runList = parseRunNumbers(runListStr)
+    this.run = run
     this.nodes = nodes
     this.links = links
     this.lastNode = lastNode
@@ -46,7 +48,7 @@ export class Workflow {
       newName || this.name,
       this.workspace,
       this.workers,
-      this.runListStr,
+      this.run,
       deepCopyNodes,
       deepCopyLinks,
       this.lastNode,
@@ -72,11 +74,10 @@ export class Workflow {
     return oldWorkers
   }
 
-  changeRunListStr(newRunListStr: string): string {
-    let oldRunLisStr = this.runListStr
-    this.runListStr = newRunListStr
-    this.runList = parseRunNumbers(newRunListStr)
-    return oldRunLisStr
+  changeRun(newRun: WorkflowRun): WorkflowRun {
+    let oldRun = this.run
+    this.run = newRun
+    return oldRun
   }
 
   pushNode(node: Node): void {

@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, computed, nextTick, watch, inject } from 'vue'
+import { ref, computed, nextTick, watch, inject, defineAsyncComponent } from 'vue'
+import { type WorkflowRun } from '../models/workflow'
 import {
   activeTabName,
   activeWorkspace,
@@ -8,18 +9,18 @@ import {
   saveActiveTab,
   renameActiveTab,
   deleteActiveTab,
-  unsaveActiveTab
+  activeWorkflowChangeRun,
+  activeWorkflowChangeWorkspace,
+  activeWorkflowChangeWorkers
 } from '../models/tabs'
-import {
-  formatRunNumbers,
-  parseRunNumbers,
-  validateRunNumbers,
-} from '../utils/runNumbers'
 import {
   listWorkflows,
   executeWorkflow,
 } from '../api/workflow'
 import { useProgressWebSocket } from '../composables/useWebSocket'
+
+// Lazy load RunSelector only when needed
+const RunSelector = defineAsyncComponent(() => import('./RunSelector.vue'))
 
 // Inject error handler from parent
 const showError = inject<(message: string) => void>('showError', (msg: string) => {
@@ -166,10 +167,9 @@ const startEditWorkspace = () => {
 const finishEditWorkspace = () => {
   isEditingWorkspace.value = false
   if (activeWorkflow.value) {
-    activeWorkflow.value.workspace = workspaceName.value
+    activeWorkflowChangeWorkspace(workspaceName.value)
+    console.log('Workspace path updated to:', activeWorkspace.value)
   }
-  unsaveActiveTab()
-  console.log('Workspace path updated to:', activeWorkspace.value)
 }
 
 const cancelEditWorkspace = () => {
@@ -188,10 +188,9 @@ const finishEditWorkers = () => {
   isEditingWorkers.value = false
   // Update workers count in the active workflow
   if (activeWorkflow.value) {
-    activeWorkflow.value.workers = workersCount.value ?? 2
+    activeWorkflowChangeWorkers(workersCount.value ?? 2)
+    console.log('Workers count updated to:', workersCount.value ?? 2)
   }
-  unsaveActiveTab()
-  console.log('Workers count updated to:', workersCount.value ?? 2)
 }
 
 const cancelEditWorkers = () => {
@@ -250,29 +249,14 @@ const runWorkflow = async () => {
 
 // Run number selector state
 const showRunNumberSheet = ref(false)
-const runNumbers = ref('')
-const selectedTags = ref<string[]>([])
-const runNumberRules = [
-  (value: string) => {
-    const result = validateRunNumbers(value)
-    return result === true ? true : result
-  }
-]
+const runInfo = ref<WorkflowRun>({runs: [], tags: []})
 
-const handleRunNumberSelection = () => {
-  // Parse run numbers and update active workflow
-  // const parsedRuns = parseRunNumbers(runNumbers.value)
-
-  // Update active workflow with both formats
+const handleRunNumberSelection = (value: WorkflowRun) => {
   if (activeWorkflow.value) {
-    activeWorkflow.value.changeRunListStr(runNumbers.value)
-    unsaveActiveTab()
-    // activeWorkflow.value.runList = parsedRuns
-    // activeWorkflow.value.runListStr = formatRunNumbers(parsedRuns)
-    console.log('Updated workflow runList:', parseRunNumbers(runNumbers.value))
-    console.log('Updated workflow runNumbers:', activeWorkflow.value.runListStr)
+    runInfo.value = value
+    activeWorkflowChangeRun(value)
+    console.log('Updated workflow runNumbers and tags:', runInfo.value.runs, runInfo.value.tags)
   }
-
   showRunNumberSheet.value = false
 }
 
@@ -288,9 +272,8 @@ watch(activeWorkers, (newWorkers) => {
 
 // Watch for workflow changes to sync runNumbers
 watch(activeWorkflow, (newWorkflow) => {
-  if (newWorkflow && newWorkflow.runList) {
-    // Update local runNumbers from workflow runList
-    runNumbers.value = formatRunNumbers(newWorkflow.runList)
+  if (newWorkflow && newWorkflow.run) {
+    runInfo.value = newWorkflow.run
   }
 }, { immediate: true })
 
@@ -425,76 +408,17 @@ watch(activeWorkflow, (newWorkflow) => {
         :offset="[10, 8]"
       >
         <template v-slot:activator="{ props }">
-          <v-btn variant="outlined" v-bind="props">
+          <v-btn variant="outlined" v-bind="props" :disabled="!activeWorkspace">
             <v-icon start>mdi-format-list-numbered</v-icon>
-            Run
+            {{ runInfo.runs.length }} run{{ runInfo.runs.length === 1 ? '' : 's' }}
           </v-btn>
         </template>
 
-        <v-card class="run-sheet">
-          <v-card-title class="d-flex align-center pa-4">
-            <span>Select Run Numbers</span>
-            <v-spacer></v-spacer>
-            <v-btn icon variant="text" @click="showRunNumberSheet = false">
-              <v-icon>mdi-close</v-icon>
-            </v-btn>
-          </v-card-title>
-
-          <v-card-text class="pa-4">
-            <!-- Run Numbers Input -->
-            <div class="mb-4">
-              <v-text-field
-                v-model="runNumbers"
-                label="Run Numbers"
-                variant="outlined"
-                density="compact"
-                hint="Enter individual numbers separated by commas, or ranges (e.g., 1-5, 8, 10-15)"
-                persistent-hint
-                :rules="runNumberRules"
-              ></v-text-field>
-            </div>
-
-            <!-- Tag Selection Area -->
-            <div class="mb-4">
-              <div class="text-subtitle-2 mb-2">Select Tags</div>
-              <div class="tag-selection">
-                <!-- Placeholder for tag chips - no tags available yet -->
-                <v-chip
-                  v-for="tag in selectedTags"
-                  :key="tag"
-                  closable
-                  @click:close="selectedTags = selectedTags.filter(t => t !== tag)"
-                  class="ma-1"
-                >
-                  {{ tag }}
-                </v-chip>
-                <div v-if="selectedTags.length === 0" class="text-grey text-body-2">
-                  No tags available yet
-                </div>
-              </div>
-            </div>
-
-            <!-- Scrollable Table Area -->
-            <div class="table-container">
-              <div class="text-subtitle-2 mb-2">Run Data</div>
-              <v-card variant="outlined" class="table-card">
-                <div class="table-placeholder text-center pa-8 text-grey">
-                  <v-icon size="48" class="mb-2">mdi-table</v-icon>
-                  <div>No data available yet</div>
-                  <div class="text-caption">Run data will appear here after selection</div>
-                </div>
-              </v-card>
-            </div>
-          </v-card-text>
-
-          <v-card-actions class="pa-4">
-            <v-spacer></v-spacer>
-            <v-btn @click="showRunNumberSheet = false">Cancel</v-btn>
-            <v-btn color="primary" @click="handleRunNumberSelection">
-              Apply Selection
-            </v-btn>
-          </v-card-actions>
-        </v-card>
+        <RunSelector
+          :runInfo="runInfo"
+          @close="showRunNumberSheet = false"
+          @apply="handleRunNumberSelection"
+        />
       </v-menu>
 
       <!-- Run Button -->
@@ -621,51 +545,6 @@ watch(activeWorkflow, (newWorkflow) => {
 
   .floating-right {
     order: 1;
-  }
-}
-
-/* Run Sheet Styles */
-.run-sheet {
-  max-height: 80vh;
-  width: 80vw;
-  overflow-y: auto;
-}
-
-.tag-selection {
-  min-height: 60px;
-  border: 1px dashed rgba(var(--v-theme-on-surface), 0.2);
-  border-radius: 4px;
-  padding: 8px;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-}
-
-.table-container {
-  max-height: 60vh;
-  overflow-y: auto;
-}
-
-.table-card {
-  min-height: 150px;
-}
-
-.table-placeholder {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 150px;
-}
-
-/* Responsive adjustments for the menu */
-@media (max-width: 768px) {
-  .run-sheet {
-    max-height: 80vh;
-  }
-
-  .table-container {
-    max-height: 60vh;
   }
 }
 </style>

@@ -231,7 +231,7 @@ class Processor:
 			"workflow_name": workflow.name,
 			"workspace": workflow.workspace,
 			"threads": workflow.workers,
-			"run_list": workflow.run_list,
+			"run_list": workflow.run.runs,
 			"nodes": [
 				{
 					"id": node.id,

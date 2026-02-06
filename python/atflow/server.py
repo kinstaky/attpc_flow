@@ -7,6 +7,7 @@ Provides RESTful API for node registry and workflow operations.
 import asyncio
 import logging
 import json
+from urllib import response
 import uvicorn
 from typing import Dict, List, Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -24,6 +25,7 @@ from atflow.progress.progress_store import (
     progress_store,
     ExecutionStatus,
 )
+from .run_tag_db import RunTagDB
 from .workflow import Workflow
 
 app = FastAPI(
@@ -151,6 +153,8 @@ def organize_nodes_by_category() -> Dict[str, List[str]]:
 		categories[category].append(name)
 
 	return categories
+
+run_tag_db = RunTagDB()
 
 # API Endpoints
 @app.get("/")
@@ -383,6 +387,58 @@ async def get_execution_status(execution_id: str):
 	except Exception as e:
 		raise HTTPException(status_code=500, detail=f"Failed to get execution status: {str(e)}")
 
+
+# Run Tags API
+class RunFilterRequest(BaseModel):
+	runs: Optional[List[int]] = None
+	tags: Optional[List[str]] = None
+
+@app.get("/runs", response_model=List[int])
+async def list_runs(workspace: str):
+	"""List all run numbers."""
+	try:
+		return run_tag_db.list_runs(Path(workspace))
+	except Exception as e:
+		raise HTTPException(status_code=500, detail=f"Failed to list runs: {str(e)}")
+
+@app.get("/runs/tags", response_model=Dict[str, List[str]])
+async def list_tags(workspace: str):
+	"""Get all tag groups with their unique values."""
+	try:
+		print(run_tag_db.list_all_tags(Path(workspace)))
+		return run_tag_db.list_all_tags(Path(workspace))
+	except Exception as e:
+		raise HTTPException(status_code=500, detail=f"Failed to list tag groups: {str(e)}")
+
+@app.post("/runs/refresh", response_model=Dict[str, int|str])
+async def refresh_run_database(workspace: str):
+	"""Force refresh the run database from disk."""
+	try:
+		df = run_tag_db.refresh(Path(workspace))
+		return {"message": "Database refreshed", "rows": len(df)}
+	except Exception as e:
+		raise HTTPException(status_code=500, detail=f"Failed to initialize run database: {str(e)}")
+
+@app.get("/runs/info", response_model=List[Dict])
+async def get_runs_info(workspace: str, runs: Optional[List[int]] = None):
+	"""Get detailed info for runs. Pass comma-separated run numbers or omit for all."""
+	try:
+		return run_tag_db.get_runs_info(Path(workspace), runs)
+	except Exception as e:
+		raise HTTPException(status_code=500, detail=f"Failed to get runs info: {str(e)}")
+
+@app.get("/runs/{run_number}", response_model=Dict)
+async def get_run_info(workspace: str, run_number: int):
+	"""Get detailed info for a specific run."""
+	try:
+		info = run_tag_db.get_run_info(Path(workspace), run_number)
+		if info is None:
+			raise HTTPException(status_code=404, detail=f"Run {run_number} not found")
+		return info
+	except HTTPException:
+		raise
+	except Exception as e:
+		raise HTTPException(status_code=500, detail=f"Failed to get run info: {str(e)}")
 
 # Health check
 @app.get("/health")

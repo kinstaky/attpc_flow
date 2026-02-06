@@ -70,7 +70,7 @@ export const getWorkflow = async (workflowName: string): Promise<Workflow> => {
     data.name,
     data.workspace,
     data.workers,
-    data.runListStr || '',
+    data.run || {runs: [], tags: []},
     data.nodes || [],
     data.links || [],
     data.lastNode || 0,

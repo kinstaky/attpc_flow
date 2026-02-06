@@ -1,6 +1,10 @@
 from typing import Dict, List, Optional, Any
 from pydantic import BaseModel, Field
 
+class WorkflowRun(BaseModel):
+	runs: List[int] = Field(default_factory=list)
+	tags: List[str] = Field(default_factory=list)
+
 class WorkflowNode(BaseModel):
 	id: int
 	name: str
@@ -20,8 +24,7 @@ class Workflow(BaseModel):
 	name: str
 	workspace: Optional[str] = None
 	workers: int = 2
-	run_list: List[int] = Field(alias="runList", default_factory=list)
-	run_numbers: str = Field(alias="runNumbers", default="")
+	run: WorkflowRun
 	nodes: List[WorkflowNode] = Field(default_factory=list)
 	links: List[WorkflowLink] = Field(default_factory=list)
 	last_node: int = Field(alias="lastNode")

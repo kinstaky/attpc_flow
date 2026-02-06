@@ -22,8 +22,8 @@
 - [x] adapt workflow in processor
 
 ## framework
-- [ ] run statiscs (time, size, trigger...)
-- [ ] run tag, experiment valid, data valid, merged, checked merge.
+- [x] run statiscs (time, size, trigger...)
+- [x] run tag, experiment valid, data valid, merged, checked merge.
 - [x] better launch, run w/o UI
 - [ ] execution log
 - [ ] execution version control

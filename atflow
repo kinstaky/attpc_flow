@@ -1,0 +1,10 @@
+#!/bin/bash
+# ATTPC Flow binary wrapper
+# This script allows running atflow as ./atflow
+
+# Get the directory where this script is located
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# Run the Python module using uv from the project directory
+cd "$SCRIPT_DIR"
+exec uv run atflow "$@"

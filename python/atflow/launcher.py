@@ -335,19 +335,114 @@ def process_workflow(workflow_file):
 		print(f"Check {log_file} for detailed logs.")
 
 
+def run_node(node_name, node_args, list_nodes=False):
+	"""Run a single node with provided arguments."""
+	# Handle list option
+	if list_nodes:
+		try:
+			from .node_registry import NodeRegistry
+			all_nodes = NodeRegistry.list_nodes()
+			# Exclude load_run and load_run_list
+			excluded_nodes = {'load_run', 'load_run_list'}
+			available_nodes = [node for node in all_nodes if node not in excluded_nodes]
+			
+			print("Available nodes:")
+			for name in sorted(available_nodes):
+				print(f"  - {name}")
+		except Exception as e:
+			print(f"Error: Failed to list nodes: {e}")
+		return
+	
+	# Check if node_name is provided
+	if not node_name:
+		print("Error: No node name provided. Use --list to see available nodes.")
+		print("Example: atflow node const_int --value 42")
+		sys.exit(1)
+	
+	# Get node from registry
+	try:
+		from .node_registry import NodeRegistry
+		node_class = NodeRegistry.get_node(node_name)
+		if not node_class:
+			print(f"Error: Node '{node_name}' not found in registry")
+			print("Use --list to see available nodes.")
+			sys.exit(1)
+	except Exception as e:
+		print(f"Error: Failed to get node '{node_name}': {e}")
+		sys.exit(1)
+
+	# Parse node-specific arguments using the node's parameter model
+	try:
+		node_info = NodeRegistry.get_node_info(node_name)
+		if node_info and node_info.parameters:
+			# Create a temporary parser for node parameters
+			param_parser = argparse.ArgumentParser()
+			for field_name, field_info in node_info.parameters.model_fields.items():
+				param_parser.add_argument(f"--{field_name}", required=field_info.default is None,
+									   help=f"Parameter {field_name}")
+
+			param_args = param_parser.parse_args(node_args)
+			params = param_args.__dict__
+		else:
+			params = {}
+
+	except Exception as e:
+		print(f"Error parsing node parameters: {e}")
+		sys.exit(1)
+
+	# Execute the node
+	try:
+		logger.info(f"Running node '{node_name}' with parameters: {params}")
+		node_instance = node_class()
+
+		# Extract parameter values (excluding None values)
+		execution_params = {}
+		for key, value in params.items():
+			if value is not None:
+				execution_params[key] = value
+
+		# Execute node
+		result = node_instance.execute(**execution_params)
+
+		# Print results
+		print(f"\nNode '{node_name}' executed successfully!")
+		print(f"Parameters: {execution_params}")
+		print(f"Result: {result}")
+
+	except Exception as e:
+		logger.error(f"Failed to execute node '{node_name}': {e}")
+		print(f"Error: Failed to execute node: {e}")
+		sys.exit(1)
+
+
 def main():
 	"""Main entry point for command line interface."""
 	parser = argparse.ArgumentParser(description="ATTPC Flow launcher")
+	parser.add_argument("--dev", action="store_true", help="Start development servers with hot reload")
 	parser.add_argument("--host", default="0.0.0.0", help="Host to bind to")
 	parser.add_argument("--port", type=int, default=8000, help="Port to bind to")
-	parser.add_argument("--dev", action="store_true", help="Start development servers with hot reload")
-	parser.add_argument("--workflow", help="Read workflow from file and run it.")
+
+	subparsers = parser.add_subparsers(dest='command', help='Available commands')
+
+	# Workflow command
+	workflow_parser = subparsers.add_parser('workflow', help='Run a workflow from file')
+	workflow_parser.add_argument("workflow_file", help="Path to workflow file")
+
+	# Node command
+	node_parser = subparsers.add_parser('node', help='Run a single node')
+	node_parser.add_argument("name", nargs='?', help="Name of the node to run")
+	node_parser.add_argument('--list', '-l', action='store_true', help='List available nodes')
+	node_parser.add_argument('node_args', nargs=argparse.REMAINDER,
+						   help='Arguments to pass to the node (e.g., --value 42)')
 
 	args = parser.parse_args()
 
-	if args.workflow:
-		process_workflow(args.workflow)
+	if args.command == 'workflow':
+		process_workflow(args.workflow_file)
+	elif args.command == 'node':
+		run_node(args.name, args.node_args, args.list)
 	elif args.dev:
 		start_dev_servers(host=args.host, port=args.port)
 	else:
+		# Default behavior - start full system
 		start_full_system(host=args.host, port=args.port)

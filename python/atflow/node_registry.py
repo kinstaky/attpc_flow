@@ -64,3 +64,20 @@ class NodeRegistry:
 		# execute node
 		instance = entry.node_class()
 		return instance.execute(**execution_kwargs)
+
+	@classmethod
+	def get_node(cls, name: str) -> Optional[Type]:
+		"""Get node class by name."""
+		entry = cls._registry.get(name)
+		return entry.node_class if entry else None
+
+	@classmethod
+	def get_node_info(cls, name: str) -> Optional[NodeInfo]:
+		"""Get node info by name."""
+		entry = cls._registry.get(name)
+		return entry.info if entry else None
+
+	@classmethod
+	def list_nodes(cls) -> list[str]:
+		"""List all registered node names."""
+		return list(cls._registry.keys())

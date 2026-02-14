@@ -129,7 +129,7 @@ const getTagColor = (group: string, value: string): string => {
     "Half Si": "warning",
     "Normal": "success",
     "Test": "info",
-    "Fail": "error",
+    "Broken": "error",
     "Beam stop": "teal"
   }
   if (value in tagColor) {

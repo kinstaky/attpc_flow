@@ -1,76 +1,169 @@
-from ..node_registry import NodeRegistry, NodeInfo
-from typing import List
+"""Basic nodes for ATTPC Flow."""
+
+from typing import Any, Dict, List, Type
+
 from pydantic import BaseModel
+
+from ..node import Node
+from ..node_manager import auto_register_node
 
 
 class ConstIntParameters(BaseModel):
-	value: int
+    value: int
 
-@NodeRegistry.register(
-	name="const_int",
-	info=NodeInfo(
-		inputs=None,
-		outputs={"value": "int"},
-		properties={"value": "int"},
-		parameters=ConstIntParameters,
-	)
-)
-class ConstIntNode():
-	def execute(self, value):
-		return [value]
 
+@auto_register_node
+class ConstIntNode(Node):
+    @property
+    def name(self) -> str:
+        return "const_int"
+
+    @property
+    def version(self) -> str:
+        return "1.0.0"
+
+    @property
+    def description(self) -> str:
+        return "Outputs a constant integer value"
+
+    @property
+    def inputs(self) -> Dict[str, str]:
+        return {}
+
+    @property
+    def outputs(self) -> Dict[str, str]:
+        return {"value": "int"}
+
+    @property
+    def properties(self) -> Dict[str, str]:
+        return {"value": "int"}
+
+    @property
+    def parameters_model(self) -> Type[BaseModel]:
+        return ConstIntParameters
+
+    def execute(self, **kwargs: Any) -> List[Any]:
+        value = kwargs.get("value")
+        return [value]
 
 
 class ConstListIntParameters(BaseModel):
-	value: List[int]
+    value: List[int]
 
-@NodeRegistry.register(
-	name="const_list_int",
-	info=NodeInfo(
-		inputs=None,
-		outputs={"value": "int[]"},
-		properties={"value": "int[]"},
-		parameters=ConstListIntParameters,
-	)
-)
-class ConstListIntNode():
-	def execute(self, value):
-		return [value]
 
+@auto_register_node
+class ConstListIntNode(Node):
+    @property
+    def name(self) -> str:
+        return "const_list_int"
+
+    @property
+    def version(self) -> str:
+        return "1.0.0"
+
+    @property
+    def description(self) -> str:
+        return "Outputs a constant list of integers"
+
+    @property
+    def inputs(self) -> Dict[str, str]:
+        return {}
+
+    @property
+    def outputs(self) -> Dict[str, str]:
+        return {"value": "int[]"}
+
+    @property
+    def properties(self) -> Dict[str, str]:
+        return {"value": "int[]"}
+
+    @property
+    def parameters_model(self) -> Type[BaseModel]:
+        return ConstListIntParameters
+
+    def execute(self, **kwargs: Any) -> List[Any]:
+        value = kwargs.get("value")
+        return [value]
 
 
 class LoadRunParameters(BaseModel):
-	run: int
+    run: int
 
-@NodeRegistry.register(
-	name="load_run",
-	info=NodeInfo(
-		inputs=None,
-		outputs={"run": "int"},
-		parameters=LoadRunParameters,
-	)
-)
-class LoadRunNode():
-	def execute(self, run):
-		return [run]
 
+@auto_register_node
+class LoadRunNode(Node):
+    @property
+    def name(self) -> str:
+        return "load_run"
+
+    @property
+    def version(self) -> str:
+        return "1.0.0"
+
+    @property
+    def description(self) -> str:
+        return "Loads a single run"
+
+    @property
+    def inputs(self) -> Dict[str, str]:
+        return {}
+
+    @property
+    def outputs(self) -> Dict[str, str]:
+        return {"run": "int"}
+
+    @property
+    def properties(self) -> Dict[str, str]:
+        return {}
+
+    @property
+    def parameters_model(self) -> Type[BaseModel]:
+        return LoadRunParameters
+
+    def execute(self, **kwargs: Any) -> List[Any]:
+        run = kwargs.get("run")
+        return [run]
 
 
 class LoadRunListParameters(BaseModel):
-	run_list: List[int]
-	run: int
+    run_list: List[int]
+    run: int
 
-@NodeRegistry.register(
-	name="load_run_list",
-	info=NodeInfo(
-		inputs=None,
-		outputs={"run": "int[]"},
-		parameters=LoadRunListParameters,
-	)
-)
-class LoadRunListNode():
-	def execute(self, run_list, run):
-		if run == run_list[0]:
-			return [run_list]
-		else:
-			return [None]
+
+@auto_register_node
+class LoadRunListNode(Node):
+    @property
+    def name(self) -> str:
+        return "load_run_list"
+
+    @property
+    def version(self) -> str:
+        return "1.0.0"
+
+    @property
+    def description(self) -> str:
+        return "Loads a list of runs, filtering by a specific run value"
+
+    @property
+    def inputs(self) -> Dict[str, str]:
+        return {}
+
+    @property
+    def outputs(self) -> Dict[str, str]:
+        return {"run": "int[]"}
+
+    @property
+    def properties(self) -> Dict[str, str]:
+        return {}
+
+    @property
+    def parameters_model(self) -> Type[BaseModel]:
+        return LoadRunListParameters
+
+    def execute(self, **kwargs: Any) -> List[Any]:
+        run_list = kwargs.get("run_list")
+        run = kwargs.get("run")
+        if run == run_list[0]:
+            return [run_list]
+        else:
+            return [None]

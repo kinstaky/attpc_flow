@@ -2,7 +2,7 @@
 #define ZMQ_PROGRESS_REPORTER_H_
 
 #include "include/common/progress_reporter.h"
-#include "ext/zmq.hpp"
+#include "external/zmq.hpp"
 #include <string>
 
 namespace atflow {

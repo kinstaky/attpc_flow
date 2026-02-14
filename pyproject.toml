@@ -1,13 +1,6 @@
-[build-system]
-requires = [
-    "scikit-build-core >=0.10",
-    "nanobind >=2.10.2",
-]
-build-backend = "scikit_build_core.build"
-
 [project]
 name = "attpc-flow"
-version = "0.0.1"
+version = "0.1.0"
 description = "Analysis tool for AT-TPC in workflow."
 readme = "README.md"
 requires-python = ">=3.12"
@@ -18,17 +11,16 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
 ]
 dependencies = [
-    "fastapi>=0.128.0",
+    "fastapi>=0.129.0",
     "colorlog>=6.0.0",
     "httpx>=0.28.1",
     "pydantic >=2.12",
     "pytest>=9.0.2",
     "pyzmq >=27.1.0",
-    "tqdm >=4.66.0",
+    "tqdm >=4.67.3",
     "uvicorn[standard]>=0.40.0",
-    "scikit-build-core>=0.11.6",
-    "nanobind>=2.11.0",
-    "polars>=1.37.1",
+    "polars>=1.38.1",
+    "attpc-flow-cpp",
 ]
 
 [project.urls]
@@ -38,30 +30,19 @@ Homepage = "https://github.com/kinstaky/attpc_flow"
 atflow = "atflow.launcher:main"
 
 
-[tool.scikit-build]
-# Protect the configuration against future changes in scikit-build-core
-minimum-version = "build-system.requires"
+[build-system]
+requires = ["uv-build>=0.10.2,<0.11"]
+build-backend = "uv_build"
 
-# Setuptools-style build caching in a local directory
-build-dir = "build/{wheel_tag}"
+[tool.uv.build-backend]
+module-name = "atflow"
+module-root = "python"
 
-# Build stable ABI wheels for CPython 3.12+
-wheel.py-api = "cp312"
+[tool.uv.sources]
+attpc-flow = { workspace = true }
+attpc-flow-cpp = { workspace = true }
 
-# set custom package directory
-wheel.packages = ["python/atflow"]
-
-[tool.cibuildwheel]
-# Necessary to see build output from the actual compilation
-build-verbosity = 1
-
-# # Run pytest to ensure that the package was correctly built
-# test-command = "pytest {project}/tests"
-# test-requires = "pytest"
-
-# # Don't test Python 3.8 wheels on macOS/arm64
-# test-skip="cp38-macosx_*:arm64"
-
-# # Needed for full C++17 support
-# [tool.cibuildwheel.macos.environment]
-# MACOSX_DEPLOYMENT_TARGET = "10.14"
+[tool.uv.workspace]
+members = [
+    "attpc_flow_cpp"
+]

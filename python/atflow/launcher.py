@@ -340,30 +340,32 @@ def run_node(node_name, node_args, list_nodes=False):
 	# Handle list option
 	if list_nodes:
 		try:
-			from .node_registry import NodeRegistry
-			all_nodes = NodeRegistry.list_nodes()
+			from .node_manager import NodeManager
+			manager = NodeManager()
+			all_nodes = manager.list_nodes()
 			# Exclude load_run and load_run_list
 			excluded_nodes = {'load_run', 'load_run_list'}
 			available_nodes = [node for node in all_nodes if node not in excluded_nodes]
-			
+
 			print("Available nodes:")
 			for name in sorted(available_nodes):
 				print(f"  - {name}")
 		except Exception as e:
 			print(f"Error: Failed to list nodes: {e}")
 		return
-	
+
 	# Check if node_name is provided
 	if not node_name:
 		print("Error: No node name provided. Use --list to see available nodes.")
 		print("Example: atflow node const_int --value 42")
 		sys.exit(1)
-	
+
 	# Get node from registry
 	try:
-		from .node_registry import NodeRegistry
-		node_class = NodeRegistry.get_node(node_name)
-		if not node_class:
+		from .node_manager import NodeManager
+		manager = NodeManager()
+		node = manager.get_node(node_name)
+		if not node:
 			print(f"Error: Node '{node_name}' not found in registry")
 			print("Use --list to see available nodes.")
 			sys.exit(1)
@@ -373,11 +375,10 @@ def run_node(node_name, node_args, list_nodes=False):
 
 	# Parse node-specific arguments using the node's parameter model
 	try:
-		node_info = NodeRegistry.get_node_info(node_name)
-		if node_info and node_info.parameters:
+		if node.parameters_model:
 			# Create a temporary parser for node parameters
 			param_parser = argparse.ArgumentParser()
-			for field_name, field_info in node_info.parameters.model_fields.items():
+			for field_name, field_info in node.parameters_model.model_fields.items():
 				param_parser.add_argument(f"--{field_name}", required=field_info.default is None,
 									   help=f"Parameter {field_name}")
 
@@ -393,7 +394,6 @@ def run_node(node_name, node_args, list_nodes=False):
 	# Execute the node
 	try:
 		logger.info(f"Running node '{node_name}' with parameters: {params}")
-		node_instance = node_class()
 
 		# Extract parameter values (excluding None values)
 		execution_params = {}
@@ -402,7 +402,14 @@ def run_node(node_name, node_args, list_nodes=False):
 				execution_params[key] = value
 
 		# Execute node
-		result = node_instance.execute(**execution_params)
+		result = manager.execute_node(
+			name=node_name,
+			execution_id="cli_execution",
+			task_id=0,
+			environment={},
+			inputs={},
+			properties=execution_params
+		)
 
 		# Print results
 		print(f"\nNode '{node_name}' executed successfully!")

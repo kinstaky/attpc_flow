@@ -19,7 +19,7 @@ from pydantic import BaseModel
 from typing import Dict, List, Optional, Any
 from pathlib import Path
 
-from atflow.node_registry import NodeRegistry
+from atflow.node_manager import NodeManager
 from atflow.nodes import *  # Import all nodes to register them
 from atflow.progress.progress_store import (
     progress_store,
@@ -141,16 +141,19 @@ def get_node_schema(pydantic_class) -> Optional[Dict[str, Any]]:
 def organize_nodes_by_category() -> Dict[str, List[str]]:
 	"""Organize registered nodes by their Python module directory."""
 	categories = {}
+	manager = NodeManager()
 
-	for name, entry in NodeRegistry._registry.items():
-		# Determine category from node class module
-		module_name = entry.node_class.__module__
-		category = module_name.split('.')[-1]
-		if category not in categories:
-			categories[category] = []
+	for name in manager.list_nodes():
+		node = manager.get_node(name)
+		if node:
+			# Determine category from node class module
+			module_name = node.__class__.__module__
+			category = module_name.split('.')[-1]
+			if category not in categories:
+				categories[category] = []
 
-		# Add just the node name
-		categories[category].append(name)
+			# Add just the node name
+			categories[category].append(name)
 
 	return categories
 
@@ -195,21 +198,21 @@ async def list_nodes():
 async def get_node(node_name: str):
 	"""Get specific node information."""
 	try:
-		entry = NodeRegistry._registry.get(node_name)
-		if not entry:
+		manager = NodeManager()
+		node = manager.get_node(node_name)
+		if not node:
 			raise HTTPException(status_code=404, detail=f"Node '{node_name}' not found")
 
-		info = entry.info
-		module_name = entry.node_class.__module__
+		module_name = node.__class__.__module__
 		category = module_name.split('.')[-1]
 
 		return NodeResponse(
 			name=node_name,
 			category=category,
-			inputs=info.inputs,
-			outputs=info.outputs,
-			properties=info.properties,
-			parameters=get_node_schema(info.parameters),
+			inputs=node.inputs,
+			outputs=node.outputs,
+			properties=node.properties,
+			parameters=get_node_schema(node.parameters_model),
 		)
 	except HTTPException:
 		raise
@@ -219,21 +222,21 @@ async def get_node(node_name: str):
 @app.get("/nodes_dev/{node_name}", response_model=Dict[Any, Any])
 async def get_dev_node(node_name: str):
 	try:
-		entry = NodeRegistry._registry.get(node_name)
-		if not entry:
+		manager = NodeManager()
+		node = manager.get_node(node_name)
+		if not node:
 			raise HTTPException(status_code=404, detail=f"Node '{node_name}' not found")
 
-		info = entry.info
-		module_name = entry.node_class.__module__
+		module_name = node.__class__.__module__
 		category = module_name.split('.')[-1]
 
 		return {
 			"name": node_name,
 			"category": category,
-			"inputs": info.inputs,
-			"outputs": info.outputs,
-			"properties": info.properties,
-			"parameters": info.parameters.model_json_schema()
+			"inputs": node.inputs,
+			"outputs": node.outputs,
+			"properties": node.properties,
+			"parameters": node.parameters_model.model_json_schema() if node.parameters_model else None
 		}
 	except HTTPException:
 		raise
@@ -445,9 +448,10 @@ async def get_run_info(workspace: str, run_number: int):
 async def health_check():
 	"""Health check endpoint."""
 	from .progress.progress_store import workflow_queue
+	manager = NodeManager()
 	return {
 		"status": "healthy",
-		"nodes_registered": len(NodeRegistry._registry),
+		"nodes_registered": len(manager.list_nodes()),
 		"workflows_saved": len(list(WORKFLOWS_DIR.glob("*.json"))),
 		"worker_queue_available": workflow_queue is not None
 	}

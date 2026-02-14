@@ -1,9 +1,8 @@
-from .attpc_flow_ext import *
-
-from .node_registry import NodeRegistry
+from .node import Node
+from .node_manager import NodeManager, auto_register_node
 from .processor import Processor
 from .progress.progress_store import progress_store
 from .launcher import launch, start_server, start_full_system, start_worker
 
 __version__ = "0.1.0"
-__all__ = ["Processor", "NodeRegistry", "progress_store", "launch", "start_server", "start_full_system", "start_worker"]
+__all__ = ["Node", "NodeManager", "auto_register_node", "Processor", "progress_store", "launch", "start_server", "start_full_system", "start_worker"]

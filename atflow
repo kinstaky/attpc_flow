@@ -7,4 +7,5 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 # Run the Python module using uv from the project directory
 cd "$SCRIPT_DIR"
+uv sync --dev --all-extras;
 exec uv run atflow "$@"

@@ -33,7 +33,7 @@ bool check_graw_event_id(
 	return result.pass;
 }
 
-NB_MODULE(attpc_flow_ext, m) {
+NB_MODULE(_lib, m) {
 	m.doc() = "Python extensions written in C++ for attpc flow.";
 	m.def(
 		"check_graw_event_id",

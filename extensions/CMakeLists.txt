@@ -1,4 +1,0 @@
-nanobind_add_module(attpc_flow_ext STABLE_ABI NB_STATIC LTO attpc_flow_extension.cpp)
-target_link_libraries(attpc_flow_ext PUBLIC graw_checker zmq_progress_reporter)
-
-install(TARGETS attpc_flow_ext LIBRARY DESTINATION atflow)

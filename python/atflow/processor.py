@@ -9,7 +9,7 @@ from typing import Dict, Any
 import logging
 import json
 
-from .node_registry import NodeRegistry
+from .node_manager import NodeManager
 from .workflow import Workflow
 from .progress.progress_store import ProgressStore
 
@@ -27,7 +27,8 @@ class TaskStatus(IntEnum):
 
 def run_node(task):
 	task["status"] = TaskStatus.RUNNING
-	return NodeRegistry.dispatch(
+	manager = NodeManager()
+	return manager.execute_node(
 		name=task["name"],
 		execution_id=task["execution_id"],
 		task_id=task["id"],
@@ -42,7 +43,7 @@ class Processor:
 		self.environment = {
 			"execution_id": execution_id,
 			"workspace": workflow.workspace,
-			"run_list": workflow.run_list
+			"run_list": workflow.run.runs,
 		}
 		self._init_tasks(workflow)
 		self.futures_to_task = {}

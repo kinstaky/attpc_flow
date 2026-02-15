@@ -4,6 +4,7 @@
 #include "include/merge/graw_checker.h"
 
 #include "include/common/zmq_progress_reporter.h"
+#include "include/common/text_progress_reporter.h"
 
 namespace nb = nanobind;
 using namespace nb::literals;
@@ -18,12 +19,19 @@ bool check_graw_event_id(
 	std::unique_ptr<atflow::ProgressReporter> progress_reporter = nullptr;
 
 	if (task_id >= 0) {
+		// Workflow/server mode: use ZMQ progress reporter
 		progress_reporter = std::make_unique<atflow::ZmqProgressReporter>(
 			execution_id, task_id, "ipc://@attpc_flow_zmq"
+		);
+	} else if (task_id == -1) {
+		// CLI node mode: use text progress reporter
+		progress_reporter = std::make_unique<atflow::TextProgressReporter>(
+			"Cheking graw files"
 		);
 	}
 
 	atflow::GrawChecker checker(
+		execution_id,
 		workspace_dir,
 		graw_dir,
 		run,

@@ -55,11 +55,13 @@ struct CheckGrawResult {
 class GrawChecker {
 public:
 	/// @brief Constructor
+	/// @param[in] execution_id execution identifier
 	/// @param[in] workspace_dir workspace directory
 	/// @param[in] graw_dir graw directory
 	/// @param[in] run run number
 	/// @param[in] progress_reporter optional progress reporter (nullptr for no progress reporting)
 	GrawChecker(
+		const std::string &execution_id,
 		const std::filesystem::path &workspace_dir,
 		const std::filesystem::path &graw_dir,
 		int run,
@@ -73,6 +75,8 @@ public:
 	/// @returns CheckGrawResult
 	CheckGrawResult Check();
 private:
+	// execution identifier
+	std::string execution_id_;
 	// workspace directory
 	std::filesystem::path workspace_dir_;
 	// Graw directory

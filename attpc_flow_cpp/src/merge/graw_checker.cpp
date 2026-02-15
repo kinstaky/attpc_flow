@@ -18,12 +18,14 @@ std::string AsadResultTypeToString(const AsadResultType &type) {
 }
 
 GrawChecker::GrawChecker(
+	const std::string &execution_id,
 	const std::filesystem::path &workspace_dir,
 	const std::filesystem::path &graw_dir,
 	int run,
 	std::unique_ptr<ProgressReporter> progress_reporter
 )
-: workspace_dir_(workspace_dir)
+: execution_id_(execution_id)
+, workspace_dir_(workspace_dir)
 , graw_dir_(graw_dir)
 , run_(run)
 , progress_reporter_(std::move(progress_reporter)) {
@@ -222,12 +224,12 @@ void GrawChecker::Record() const {
 			return key;
 		}
 	);
-	statistics.SetHeader("Run,Cobo,Asad,events,start,end,good,continuous,complete");
+	statistics.SetHeader("Run,Execution,Cobo,Asad,events,start,end,good,continuous,complete");
 	for (int idx = 0; idx < 42; ++idx) {
 		int cobo = idx / 4;
 		int asad = idx % 4;
 		statistics.AddEntry()
-			<< run_ << cobo << asad
+			<< run_ << execution_id_ << cobo << asad
 			<< event_counts_[idx] << start_event_[idx] << end_event_[idx]
 			<< (good_[idx] ? "true" : "false")
 			<< (continuous_[idx] ? "true" : "false")

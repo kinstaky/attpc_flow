@@ -9,9 +9,9 @@ TextProgressReporter::TextProgressReporter(const std::string &prefix)
 
 void TextProgressReporter::ReportStart() {
 	if (prefix_.empty()) {
-		std::cout << "Progress: Starting task..." << std::endl;
+		std::cout << "Progress:";
 	} else {
-		std::cout << prefix_ << ": Starting task..." << std::endl;
+		std::cout << prefix_ << ":";
 	}
 }
 

@@ -379,7 +379,12 @@ def run_node(node_name, node_args, list_nodes=False):
 			# Create a temporary parser for node parameters
 			param_parser = argparse.ArgumentParser()
 			for field_name, field_info in node.parameters_model.model_fields.items():
-				param_parser.add_argument(f"--{field_name}", required=field_info.default is None,
+				if field_name == "task_id":
+					continue
+				elif field_name == "execution_id":
+					param_parser.add_argument("--execution_id", required=False, help="Execution ID")
+				else:
+					param_parser.add_argument(f"--{field_name}", required=field_info.default is None,
 									   help=f"Parameter {field_name}")
 
 			param_args = param_parser.parse_args(node_args)
@@ -401,11 +406,13 @@ def run_node(node_name, node_args, list_nodes=False):
 			if value is not None:
 				execution_params[key] = value
 
+		if "execution_id" not in execution_params:
+			execution_params["execution_id"] = str(uuid.uuid4())
 		# Execute node
 		result = manager.execute_node(
 			name=node_name,
-			execution_id="cli_execution",
-			task_id=0,
+			execution_id=execution_params["execution_id"],
+			task_id=-1,
 			environment={},
 			inputs={},
 			properties=execution_params

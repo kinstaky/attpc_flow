@@ -218,8 +218,8 @@ void GrawChecker::Record() const {
 		statistics_path,
 		[](const Row &row) {
 			int run = row.As<int>(0);
-			int cobo = row.As<int>(1);
-			int asad = row.As<int>(2);
+			int cobo = row.As<int>(2);
+			int asad = row.As<int>(3);
 			int key = (run<<6) | (cobo<<2) | asad;
 			return key;
 		}

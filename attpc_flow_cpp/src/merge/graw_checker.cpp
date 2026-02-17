@@ -59,6 +59,7 @@ CheckGrawResult GrawChecker::Check() {
 	// initialize result
 	CheckGrawResult result;
 	result.pass = true;
+	result.msg = "";
 
 	// report start if progress reporter is available
 	if (progress_reporter_) {
@@ -78,6 +79,7 @@ CheckGrawResult GrawChecker::Check() {
 			result.which.push_back(idx);
 			result.pass = false;
 		}
+		result.msg += asad_result.msg;
 		// check size
 		check_size += asad_result.size;
 
@@ -98,6 +100,19 @@ CheckGrawResult GrawChecker::Check() {
 	CheckEventId(end_event_, result);
 	// record
 	Record();
+	// record result to log file
+	std::string log_name =
+		"graw-event-id-check-" + std::to_string(run_) + ".log";
+	std::filesystem::path log_path(
+		workspace_dir_ / "log" / log_name
+	);
+	std::ofstream log(log_path);
+	if (result.pass) {
+		log << "Pass\n";
+	} else {
+		log << result.msg << "\n";
+	}
+	log.close();
 	return result;
 }
 
@@ -109,8 +124,11 @@ CheckAsadResult GrawChecker::CheckAsad(int cobo, int asad) {
 		.asad = asad,
 		.event = -1,
 		.type = AsadResultType::Pass,
-		.size = 0
+		.size = 0,
+		.msg = ""
 	};
+	// index
+	int idx = cobo*4+asad;
 	// file name
 	std::stringstream ss;
 	ss << std::setw(4) << std::setfill('0')
@@ -155,26 +173,28 @@ CheckAsadResult GrawChecker::CheckAsad(int cobo, int asad) {
 				|| reader.FrameType() != 1
 				|| reader.ItemSize() != 4
 			) {
-				good_[cobo*4+asad] = false;
+				good_[idx] = false;
 				result.type = AsadResultType::Broken;
+				result.msg += "Broken," + std::to_string(end_event_[idx]) + "\n";
 				return result;
 			}
 			// increase event count
-			++event_counts_[cobo*4+asad];
+			++event_counts_[idx];
 			// event id
 			int event_id = reader.EventId();
 			// check event id
-			if (start_event_[cobo*4+asad] == -1) {
+			if (start_event_[idx] == -1) {
 				// get start event
-				start_event_[cobo*4+asad] = event_id;
-			} else if (event_id != end_event_[cobo*4+asad] + 1) {
+				start_event_[idx] = event_id;
+			} else if (event_id != end_event_[idx] + 1) {
 				// check if event id is continuous
-				continuous_[cobo*4+asad] = false;
+				continuous_[idx] = false;
 				result.type = AsadResultType::InContinuous;
+				result.event = end_event_[idx];
+				result.msg += "InContinuous," + std::to_string(end_event_[idx]) + "\n";
 			}
 			// update event count
-			end_event_[cobo*4+asad] = event_id;
-			result.event = event_id;
+			end_event_[idx] = event_id;
 		}
 		// check size
 		result.size += std::filesystem::file_size(file);
@@ -205,12 +225,14 @@ void GrawChecker::CheckEventId(int *id_list, CheckGrawResult &result) {
 			result.asad_results[idx].type = AsadResultType::Incomplete;
 			result.which.push_back(idx);
 			result.pass = false;
+			result.msg += "Incomplete\n";
 		}
 	}
 }
 
 
 void GrawChecker::Record() const {
+	// record result to statistics file
 	std::filesystem::path statistics_path(
 		workspace_dir_ / "statistics" / "merge_check.csv"
 	);

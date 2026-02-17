@@ -40,6 +40,8 @@ struct CheckAsadResult {
 	AsadResultType type;
 	// size of files
 	size_t size;
+	// messsage
+	std::string msg;
 };
 
 /// @brief Result of checking graw file
@@ -50,6 +52,8 @@ struct CheckGrawResult {
 	CheckAsadResult asad_results[42];
 	// error ones
 	std::vector<int> which;
+	// message
+	std::string msg;
 };
 
 class GrawChecker {

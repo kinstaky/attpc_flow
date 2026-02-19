@@ -71,6 +71,51 @@ class NodeResponse(BaseModel):
 WORKFLOWS_DIR = Path("workflows")
 WORKFLOWS_DIR.mkdir(exist_ok=True)
 
+# Recent workflows storage (plain text, one workflow per line)
+RECENT_WORKFLOWS_FILE = Path("workflows/.recent")
+MAX_RECENT_WORKFLOWS = 5
+
+# Opened workflows storage (plain text, one workflow per line)
+OPENED_WORKFLOWS_FILE = Path("workflows/.opened")
+
+def load_workflow_list(file_path: Path) -> List[str]:
+	"""Load a list of workflow names from a plain text file (one per line)."""
+	if not file_path.exists():
+		return []
+	try:
+		with open(file_path, 'r') as f:
+			# Filter out empty lines
+			return [line.strip() for line in f if line.strip()]
+	except IOError:
+		return []
+
+def save_workflow_list(file_path: Path, workflows: List[str]):
+	"""Save a list of workflow names to a plain text file (one per line)."""
+	try:
+		file_path.parent.mkdir(parents=True, exist_ok=True)
+		with open(file_path, 'w') as f:
+			for workflow in workflows:
+				f.write(f"{workflow}\n")
+	except IOError as e:
+		logging.error(f"Failed to save workflow list to {file_path}: {e}")
+
+def load_recent_workflows() -> List[str]:
+	"""Load the list of recently opened workflows from disk."""
+	return load_workflow_list(RECENT_WORKFLOWS_FILE)
+
+def save_recent_workflows(workflows: List[str]):
+	"""Save the list of recently opened workflows to disk."""
+	save_workflow_list(RECENT_WORKFLOWS_FILE, workflows[:MAX_RECENT_WORKFLOWS])
+
+def load_opened_workflows() -> List[str]:
+	"""Load the list of currently opened workflows from disk."""
+	return load_workflow_list(OPENED_WORKFLOWS_FILE)
+
+def save_opened_workflows(workflows: List[str]):
+	"""Save the list of currently opened workflows to disk."""
+	save_workflow_list(OPENED_WORKFLOWS_FILE, workflows)
+
+
 # WebSocket manager for progress broadcasting
 class WebSocketManager:
 	def __init__(self):
@@ -262,7 +307,7 @@ async def create_workflow(workflow: Workflow):
 
 @app.get("/workflows/{workflow_id}", response_model=Workflow)
 async def get_workflow(workflow_id: str):
-	"""Get a specific workflow."""
+	"""Get a specific workflow and update recent/opened lists."""
 	try:
 		file_path = WORKFLOWS_DIR / f"{workflow_id}.json"
 		if not file_path.exists():
@@ -270,7 +315,22 @@ async def get_workflow(workflow_id: str):
 
 		with open(file_path, 'r') as f:
 			workflow_data = json.load(f)
-			return Workflow.model_validate(workflow_data)
+			workflow = Workflow.model_validate(workflow_data)
+
+		# Update recent workflows: move to front if exists, add to front if new
+		recent = load_recent_workflows()
+		if workflow_id in recent:
+			recent.remove(workflow_id)
+		recent.insert(0, workflow_id)
+		save_recent_workflows(recent[:MAX_RECENT_WORKFLOWS])
+
+		# Add to opened workflows if not already present
+		opened = load_opened_workflows()
+		if workflow_id not in opened:
+			opened.append(workflow_id)
+			save_opened_workflows(opened)
+
+		return workflow
 	except HTTPException:
 		raise
 	except Exception as e:
@@ -311,6 +371,34 @@ async def delete_workflow(workflow_id: str):
 		raise
 	except Exception as e:
 		raise HTTPException(status_code=500, detail=f"Failed to delete workflow: {str(e)}")
+
+@app.get("/recent_workflows", response_model=List[str])
+async def list_recent_workflows():
+	"""Get list of recently opened workflows (max 5)."""
+	try:
+		return load_recent_workflows()
+	except Exception as e:
+		raise HTTPException(status_code=500, detail=f"Failed to load recent workflows: {str(e)}")
+
+@app.get("/opened_workflows", response_model=List[str])
+async def list_opened_workflows():
+	"""Get list of currently opened workflows."""
+	try:
+		return load_opened_workflows()
+	except Exception as e:
+		raise HTTPException(status_code=500, detail=f"Failed to load opened workflows: {str(e)}")
+
+@app.post("/close_workflow/{workflow_name}")
+async def close_workflow(workflow_name: str):
+	"""Remove a workflow from the opened list."""
+	try:
+		opened = load_opened_workflows()
+		if workflow_name in opened:
+			opened.remove(workflow_name)
+			save_opened_workflows(opened)
+		return {"message": f"Closed '{workflow_name}'"}
+	except Exception as e:
+		raise HTTPException(status_code=500, detail=f"Failed to close workflow: {str(e)}")
 
 @app.post("/executions/{workflow_id}", response_model=ExecutionStatus)
 async def execute_workflow(workflow_id: str):

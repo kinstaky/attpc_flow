@@ -108,3 +108,39 @@ export const listExecutions = async () => {
   }
   return await response.json()
 }
+
+// List opened workflows via GET API
+export const listOpenedWorkflows = async (): Promise<string[]> => {
+  const response = await fetch(`${API_BASE}/opened_workflows`)
+  if (!response.ok) {
+    throw new Error(`Failed to fetch opened workflows: ${response.statusText}`)
+  }
+  const workflows = await response.json()
+  return workflows
+}
+
+// List recent workflows via GET API (max 5)
+export const listRecentWorkflows = async (): Promise<string[]> => {
+  const response = await fetch(`${API_BASE}/recent_workflows`)
+  if (!response.ok) {
+    throw new Error(`Failed to fetch recent workflows: ${response.statusText}`)
+  }
+  const workflows = await response.json()
+  return workflows
+}
+
+// Close workflow (remove from opened list)
+export const closeWorkflow = async (workflowName: string): Promise<void> => {
+  const response = await fetch(
+    `${API_BASE}/close_workflow/${encodeURIComponent(workflowName)}`,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      }
+    }
+  )
+  if (!response.ok) {
+    throw new Error(`Failed to close workflow: ${response.statusText}`)
+  }
+}

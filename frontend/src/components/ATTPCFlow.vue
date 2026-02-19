@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, provide, defineAsyncComponent } from 'vue'
-import { activeTabId } from '../models/tabs'
+import { ref, provide, defineAsyncComponent, onMounted } from 'vue'
+import { activeTabId, createTab } from '../models/tabs'
+import { listOpenedWorkflows } from '../api/workflow'
 
 // Use defineAsyncComponent with loading states
 const TopAppBar = defineAsyncComponent({
@@ -52,6 +53,24 @@ const showError = (message: string) => {
 
 // Provide error handler to child components
 provide('showError', showError)
+
+// Open workflows from opened list on startup
+onMounted(async () => {
+  try {
+    const openedWorkflows = await listOpenedWorkflows()
+    console.log('Opened workflows:', openedWorkflows)
+    // Open all workflows that were previously opened
+    for (const workflowName of openedWorkflows) {
+      try {
+        await createTab(workflowName)
+      } catch (error) {
+        console.error(`Failed to open workflow ${workflowName}:`, error)
+      }
+    }
+  } catch (error) {
+    console.error('Failed to load opened workflows on startup:', error)
+  }
+})
 </script>
 
 <template>

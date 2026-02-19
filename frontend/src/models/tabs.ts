@@ -7,7 +7,8 @@ import {
   getWorkflow,
   deleteWorkflow,
   updateWorkflow,
-  createWorkflow
+  createWorkflow,
+  closeWorkflow
 } from '../api/workflow'
 
 
@@ -41,7 +42,6 @@ export const activeWorkflow = computed(() => activeTab.value?.workflow || null)
 export const activeWorkspace = computed(() => activeTab.value?.workflow.workspace || null)
 export const activeWorkers = computed(() => activeTab.value?.workflow.workers || null)
 
-// Tabs management functions
 export const setActiveTab = (tabId: string) => {
   if (tabState.tabs.findIndex(t => t.id === tabId) != -1) {
     tabState.activeTabId = tabId
@@ -65,8 +65,9 @@ export const createTab = async (workflowName: string) => {
   setActiveTab(workflow.name)
 }
 
-export const closeActiveTab = (save: boolean = false) => {
+export const closeActiveTab = async (save: boolean = false) => {
   if (!activeTab.value) return
+  const workflowName = activeTab.value.workflow.name
   if (save && !activeTab.value.saved) {
     saveActiveTab()
   }
@@ -82,6 +83,12 @@ export const closeActiveTab = (save: boolean = false) => {
   } else {
     tabState.tabs = []
     tabState.activeTabId = null
+  }
+  // Call close workflow API
+  try {
+    await closeWorkflow(workflowName)
+  } catch (error) {
+    console.error('Failed to close workflow:', error)
   }
 }
 

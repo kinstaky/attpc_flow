@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, inject, onMounted } from 'vue'
 import { createTab } from '../models/tabs'
-import { createWorkflow, workflowNameExists, listWorkflows } from '../api/workflow'
+import { createWorkflow, workflowNameExists, listRecentWorkflows } from '../api/workflow'
 import { Workflow } from '../models/workflow'
 
 // Inject error handler from parent
@@ -13,25 +13,18 @@ const showError = inject<(message: string) => void>('showError', (msg: string) =
 const nameDialogInput = ref('')
 const showNameDialog = ref(false)
 
-// Existing workflows
-const existingWorkflows = ref<string[]>([])
-const isLoading = ref(false)
+// Recent workflows
+const recentWorkflows = ref<string[]>([])
 
-// Load workflows on mount
+// Load recent workflows on mount
 onMounted(async () => {
-  await loadWorkflows()
-})
-
-const loadWorkflows = async () => {
-  isLoading.value = true
   try {
-    existingWorkflows.value = await listWorkflows()
+    recentWorkflows.value = await listRecentWorkflows()
+    console.log('Recent workflows:', recentWorkflows.value)
   } catch (error) {
-    console.error('Failed to load workflows:', error)
-  } finally {
-    isLoading.value = false
+    console.error('Failed to load recent workflows:', error)
   }
-}
+})
 
 const handleNewTab = () => {
   showNameDialog.value = true
@@ -93,12 +86,12 @@ const handleNameDialogCancel = () => {
         Open New Workflow
       </v-btn>
 
-      <!-- Existing Workflows Section -->
-      <div v-if="existingWorkflows.length > 0" class="workflows-section">
+      <!-- Recent Workflows Section -->
+      <div v-if="recentWorkflows.length > 0" class="workflows-section">
         <h2 class="workflows-title">Recent Workflows</h2>
         <v-list class="workflows-list" bg-color="transparent">
           <v-list-item
-            v-for="workflow in existingWorkflows"
+            v-for="workflow in recentWorkflows"
             :key="workflow"
             class="workflow-item"
             @click="openWorkflow(workflow)"
@@ -112,8 +105,8 @@ const handleNameDialogCancel = () => {
         </v-list>
       </div>
 
-      <div v-else-if="!isLoading" class="no-workflows">
-        <p class="text-grey-lighten-1">No workflows found. Create your first workflow to get started.</p>
+      <div v-else class="no-workflows">
+        <p class="text-grey-lighten-1">No recent workflows. Create a new workflow to get started.</p>
       </div>
     </div>
 

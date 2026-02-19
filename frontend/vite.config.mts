@@ -66,6 +66,18 @@ export default defineConfig({
         target: 'http://localhost:8000',
         changeOrigin: true,
       },
+      '/opened_workflows': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+      '/recent_workflows': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
+      '/close_workflow': {
+        target: 'http://localhost:8000',
+        changeOrigin: true,
+      },
       '/ws': {
         target: 'ws://localhost:8000',
         ws: true,

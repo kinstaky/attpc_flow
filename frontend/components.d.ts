@@ -19,5 +19,6 @@ declare module 'vue' {
     RunSelector: typeof import('./src/components/RunSelector.vue')['default']
     SideNav: typeof import('./src/components/SideNav.vue')['default']
     TopAppBar: typeof import('./src/components/TopAppBar.vue')['default']
+    WelcomePage: typeof import('./src/components/WelcomePage.vue')['default']
   }
 }

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, provide, defineAsyncComponent } from 'vue'
+import { activeTabId } from '../models/tabs'
 
 // Use defineAsyncComponent with loading states
 const TopAppBar = defineAsyncComponent({
@@ -30,6 +31,13 @@ const FlowCanvas = defineAsyncComponent({
   timeout: 3000
 })
 
+const WelcomePage = defineAsyncComponent({
+  loader: () => import('./WelcomePage.vue'),
+  loadingComponent: () => 'Loading...',
+  delay: 200,
+  timeout: 3000
+})
+
 // Snackbar state
 const snackbar = ref(false)
 const snackbarText = ref('')
@@ -54,11 +62,15 @@ provide('showError', showError)
 
     <!-- Main Canvas Area -->
     <v-main class="canvas-container">
-      <!-- Flow Canvas Component -->
-      <FlowCanvas />
+      <!-- Welcome Page when no tab is active -->
+      <WelcomePage v-if="!activeTabId" />
 
-      <!-- Floating Buttons Component -->
-      <FloatingButtons />
+      <!-- Flow Canvas Component when a tab is active -->
+      <template v-else>
+        <FlowCanvas />
+        <!-- Floating Buttons Component -->
+        <FloatingButtons />
+      </template>
     </v-main>
 
     <!-- Error Snackbar -->

@@ -8,7 +8,7 @@
 - [x] change to unsave when edit node property, worksapce, core, run
 
 ### tabs
-- [ ] welcome page for no tabs
+- [x] welcome page for no tabs
 - [ ] test rename, delete, save tab
 - [ ] implement copy tab
 - [ ] implement saveas tab

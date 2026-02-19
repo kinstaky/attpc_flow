@@ -1,0 +1,5 @@
+Metadata-Version: 2.4
+Name: attpc-flow-frontend
+Version: 0.1.0
+Summary: ATTPC Flow frontend UI
+Requires-Python: >=3.12

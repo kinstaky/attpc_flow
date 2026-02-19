@@ -1,0 +1,9 @@
+[project]
+name = "attpc-flow-frontend"
+version = "0.1.0"
+description = "ATTPC Flow frontend UI"
+requires-python = ">=3.12"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"

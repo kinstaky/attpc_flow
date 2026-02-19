@@ -6,6 +6,7 @@ requires-python = ">=3.12"
 members = [
     "attpc-flow",
     "attpc-flow-cpp",
+    "attpc-flow-frontend",
 ]
 
 [[package]]
@@ -45,6 +46,7 @@ version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "attpc-flow-cpp" },
+    { name = "attpc-flow-frontend" },
     { name = "colorlog" },
     { name = "fastapi" },
     { name = "httpx" },
@@ -59,6 +61,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "attpc-flow-cpp", editable = "attpc_flow_cpp" },
+    { name = "attpc-flow-frontend", editable = "frontend" },
     { name = "colorlog", specifier = ">=6.0.0" },
     { name = "fastapi", specifier = ">=0.129.0" },
     { name = "httpx", specifier = ">=0.28.1" },
@@ -74,6 +77,11 @@ requires-dist = [
 name = "attpc-flow-cpp"
 version = "0.1.0"
 source = { editable = "attpc_flow_cpp" }
+
+[[package]]
+name = "attpc-flow-frontend"
+version = "0.1.0"
+source = { editable = "frontend" }
 
 [[package]]
 name = "certifi"

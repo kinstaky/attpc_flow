@@ -16,6 +16,8 @@
 ### nodes
 - [ ] attpc_merger rust->python
 - [ ] check merged
+- [ ] node category
+- [ ] record bad events
 
 ## processor
 - [x] special treatment to "run_loader", less discard
@@ -28,6 +30,12 @@
 - [ ] execution log
 - [ ] execution version control
 - [ ] execution workspace record
+- [ ] memory of execution log and execution status
+- [ ] memory of last opened workflow
+
+## run tag
+- [ ] write new run tag
+- [ ] write tag after check_graw_event_id
 
 ## other
 - [ ] better dialog in TopAppBar and FloatingButtons

@@ -1,0 +1,8 @@
+api
+assets
+components
+composables
+models
+plugins
+types
+utils

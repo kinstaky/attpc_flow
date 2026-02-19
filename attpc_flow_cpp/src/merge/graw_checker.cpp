@@ -101,11 +101,13 @@ CheckGrawResult GrawChecker::Check() {
 	// record
 	Record();
 	// record result to log file
+	std::filesystem::path log_dir = workspace_dir_ / "log";
+	if (!std::filesystem::exists(log_dir)) {
+		std::filesystem::create_directories(log_dir);
+	}
 	std::string log_name =
 		"graw-event-id-check-" + std::to_string(run_) + ".log";
-	std::filesystem::path log_path(
-		workspace_dir_ / "log" / log_name
-	);
+	std::filesystem::path log_path(log_dir / log_name);
 	std::ofstream log(log_path);
 	if (result.pass) {
 		log << "Pass\n";

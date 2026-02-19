@@ -342,6 +342,7 @@ class NodeManager:
             "name": node.name,
             "version": node.version,
             "description": node.description,
+            "category": node.category,
             "inputs": node.inputs,
             "outputs": node.outputs,
             "properties": node.properties,

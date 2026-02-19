@@ -33,6 +33,10 @@ class CheckGrawEventIdNode(Node):
         return "Checks GRAW event ID for a given run"
 
     @property
+    def category(self) -> str:
+        return "merger"
+
+    @property
     def inputs(self) -> Dict[str, str]:
         return {}
 

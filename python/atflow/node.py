@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Dict, List, Type
 
 from pydantic import BaseModel
 
@@ -31,6 +31,12 @@ class Node(ABC):
 
     @property
     @abstractmethod
+    def category(self) -> str:
+        """Return the node category."""
+        ...
+
+    @property
+    @abstractmethod
     def inputs(self) -> Dict[str, str]:
         """Return input schema as {name: type}."""
         ...
@@ -48,7 +54,7 @@ class Node(ABC):
         ...
 
     @property
-    def parameters_model(self) -> Optional[Type[BaseModel]]:
+    def parameters_model(self) -> Type[BaseModel] | None:
         """Return Pydantic model for parameter validation."""
         return None
 

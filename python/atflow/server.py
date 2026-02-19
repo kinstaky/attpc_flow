@@ -7,6 +7,7 @@ Provides RESTful API for node registry and workflow operations.
 import asyncio
 import logging
 import json
+import os
 from urllib import response
 import uvicorn
 from typing import Dict, List, Optional
@@ -139,16 +140,14 @@ def get_node_schema(pydantic_class) -> Optional[Dict[str, Any]]:
 		return None
 
 def organize_nodes_by_category() -> Dict[str, List[str]]:
-	"""Organize registered nodes by their Python module directory."""
+	"""Organize registered nodes by their category."""
 	categories = {}
 	manager = NodeManager()
 
 	for name in manager.list_nodes():
 		node = manager.get_node(name)
 		if node:
-			# Determine category from node class module
-			module_name = node.__class__.__module__
-			category = module_name.split('.')[-1]
+			category = node.category
 			if category not in categories:
 				categories[category] = []
 
@@ -203,12 +202,9 @@ async def get_node(node_name: str):
 		if not node:
 			raise HTTPException(status_code=404, detail=f"Node '{node_name}' not found")
 
-		module_name = node.__class__.__module__
-		category = module_name.split('.')[-1]
-
 		return NodeResponse(
 			name=node_name,
-			category=category,
+			category=node.category,
 			inputs=node.inputs,
 			outputs=node.outputs,
 			properties=node.properties,
@@ -227,12 +223,9 @@ async def get_dev_node(node_name: str):
 		if not node:
 			raise HTTPException(status_code=404, detail=f"Node '{node_name}' not found")
 
-		module_name = node.__class__.__module__
-		category = module_name.split('.')[-1]
-
 		return {
 			"name": node_name,
-			"category": category,
+			"category": node.category,
 			"inputs": node.inputs,
 			"outputs": node.outputs,
 			"properties": node.properties,
@@ -295,6 +288,8 @@ async def update_workflow(workflow_id: str, workflow: Workflow):
 		# Save updated workflow
 		with open(file_path, 'w') as f:
 			json.dump(workflow.model_dump(by_alias=True), f, indent=2)
+			f.flush()
+			os.fsync(f.fileno())
 
 		return workflow
 	except HTTPException:

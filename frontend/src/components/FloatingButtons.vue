@@ -74,6 +74,11 @@ const saveAsWorkflow = () => {
   showWorkflowMenu.value = false
 }
 
+const saveWorkflow = () => {
+  saveActiveTab()
+  showWorkflowMenu.value = false
+}
+
 const renameWorkflow = async () => {
   isRenaming.value = true
   showWorkflowMenu.value = false
@@ -316,7 +321,7 @@ watch(activeWorkflow, (newWorkflow) => {
             </template>
             <v-list-item-title>Duplicate</v-list-item-title>
           </v-list-item>
-          <v-list-item @click="saveActiveTab">
+          <v-list-item @click="saveWorkflow">
             <template v-slot:prepend>
               <v-icon>mdi-content-save</v-icon>
             </template>

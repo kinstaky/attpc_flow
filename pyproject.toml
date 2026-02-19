@@ -21,6 +21,7 @@ dependencies = [
     "uvicorn[standard]>=0.40.0",
     "polars>=1.38.1",
     "attpc-flow-cpp",
+    "attpc-flow-frontend",
 ]
 
 [project.urls]
@@ -41,8 +42,10 @@ module-root = "python"
 [tool.uv.sources]
 attpc-flow = { workspace = true }
 attpc-flow-cpp = { workspace = true }
+attpc-flow-frontend = { workspace = true }
 
 [tool.uv.workspace]
 members = [
-    "attpc_flow_cpp"
+    "attpc_flow_cpp",
+    "frontend"
 ]

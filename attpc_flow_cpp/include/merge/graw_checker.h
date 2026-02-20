@@ -4,6 +4,8 @@
 #include <filesystem>
 #include <memory>
 #include <vector>
+#include <sstream>
+#include <set>
 
 #include "include/merge/graw.h"
 #include "include/common/progress_reporter.h"
@@ -18,8 +20,8 @@ enum class AsadResultType {
 	Broken,
 	/// @brief data is incomplete, event count less than other asad
 	Incomplete,
-	/// @brief event id is not continuous
-	InContinuous,
+	/// @brief event id missing
+	Missing,
 };
 
 /// @brief Convert AsadResultType to string
@@ -40,8 +42,6 @@ struct CheckAsadResult {
 	AsadResultType type;
 	// size of files
 	size_t size;
-	// messsage
-	std::string msg;
 };
 
 /// @brief Result of checking graw file
@@ -52,8 +52,6 @@ struct CheckGrawResult {
 	CheckAsadResult asad_results[42];
 	// error ones
 	std::vector<int> which;
-	// message
-	std::string msg;
 };
 
 class GrawChecker {
@@ -103,6 +101,10 @@ private:
 	bool continuous_[42];
 	// file is complete
 	bool complete_[42];
+	// log stream for normal logging
+	std::stringstream log_stream_;
+	// bad event set for unique bad event IDs
+	std::set<int> bad_events_;
 
 	/// @brief Check single asad's data
 	/// @param[in] cobo cobo number
@@ -112,7 +114,7 @@ private:
 
 	/// @brief Check event id is continuous
 	/// @param[in] ids event ids
-	void CheckEventId(int *id_list, CheckGrawResult &result);
+	void CheckEventId(int *id_list, CheckGrawResult &result, bool max = true);
 
 	/// @brief Record results
 	void Record() const;

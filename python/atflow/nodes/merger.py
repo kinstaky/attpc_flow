@@ -8,7 +8,7 @@ from attpc_flow_cpp import check_graw_event_id
 
 from ..node import Node
 from ..node_manager import auto_register_node
-
+from ..run_tag_db import RunTagDB
 
 class CheckGrawEventIdParameters(BaseModel):
     execution_id: str
@@ -66,7 +66,8 @@ class CheckGrawEventIdNode(Node):
             workspace_dir=workspace_dir,
             run=run,
         )
-        if result:
-            return [run]
-        else:
-            return [None]
+        db = RunTagDB()
+        db.add_tag_group(workspace=workspace_dir, name="evtid", default_value="uncheck")
+        db.set_run_tag(workspace=workspace_dir, run=run, tag=f"evtid:{result}")
+
+        return [run] if result == "pass" else [None]

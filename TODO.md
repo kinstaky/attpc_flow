@@ -6,6 +6,7 @@
 - [x] undo and redo
 - [x] unify workflow graph edit command: pop_node, push_node, insert_node, delete_node, ..link, move node,
 - [x] change to unsave when edit node property, worksapce, core, run
+- [ ] history execution and status
 
 ### tabs
 - [x] welcome page for no tabs
@@ -27,15 +28,15 @@
 - [x] run statiscs (time, size, trigger...)
 - [x] run tag, experiment valid, data valid, merged, checked merge.
 - [x] better launch, run w/o UI
-- [ ] execution log
+- [ ] execution log: time, node and node version
 - [ ] execution version control
 - [ ] execution workspace record
 - [ ] memory of execution log and execution status
-- [ ] memory of last opened workflow
+- [x] memory of last opened workflow
 
 ## run tag
-- [ ] write new run tag
-- [ ] write tag after check_graw_event_id
+- [x] write new run tag
+- [x] write tag after check_graw_event_id
 
 ## other
 - [ ] better dialog in TopAppBar and FloatingButtons

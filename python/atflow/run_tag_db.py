@@ -225,9 +225,11 @@ class RunTagDB:
 
     def add_tag_group(self, workspace: Path, name: str, default_value: str = ""):
         """Add a new tag group column."""
+        path = str(workspace)
         df = self._load(workspace)
         if name not in df.columns:
-            self._df = df.with_columns(pl.lit(default_value).alias(name))
+            df = df.with_columns(pl.lit(default_value).alias(name))
+            self._db_map[path].df = df
             self._save(workspace)
 
     def set_run_tag(self, workspace: Path, run: int, tag: str):
@@ -241,16 +243,18 @@ class RunTagDB:
         if ':' not in tag:
             raise ValueError(f"Invalid tag format: {tag}. Expected format: 'tag_group:tag_value'")
 
+        path = str(workspace)
         tag_group, tag_value = tag.split(':', 1)
         df = self._load(workspace)
         if tag_group not in df.columns:
             self.add_tag_group(workspace, tag_group)
             df = self._load(workspace)
 
-        self._df = df.with_columns(
+        df = df.with_columns(
             pl.when(pl.col("run") == run)
             .then(pl.lit(tag_value))
             .otherwise(pl.col(tag_group))
             .alias(tag_group)
         )
+        self._db_map[path].df = df
         self._save(workspace)

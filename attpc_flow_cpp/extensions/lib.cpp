@@ -9,7 +9,7 @@
 namespace nb = nanobind;
 using namespace nb::literals;
 
-bool check_graw_event_id(
+std::string check_graw_event_id(
 	std::string execution_id,
 	int task_id,
 	std::string workspace_dir,
@@ -38,7 +38,29 @@ bool check_graw_event_id(
 		std::move(progress_reporter)
 	);
 	atflow::CheckGrawResult result = checker.Check();
-	return result.pass;
+	std::string summary = result.pass ? "pass" : "";
+	if (!result.pass) {
+		for (int idx : result.which) {
+			const auto& asad_result = result.asad_results[idx];
+			if (asad_result.type == atflow::AsadResultType::Pass) {
+				continue;
+			}
+			if (asad_result.type == atflow::AsadResultType::Broken) {
+				summary = "broken";
+				break;
+			} else if (
+				asad_result.type == atflow::AsadResultType::Incomplete
+			) {
+				summary = "incomplete";
+			} else if (
+				asad_result.type == atflow::AsadResultType::Missing
+				&& summary == ""
+			) {
+				summary = "missing";
+			}
+		}
+	}
+	return summary;
 }
 
 NB_MODULE(_lib, m) {

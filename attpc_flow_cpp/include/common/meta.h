@@ -1,5 +1,5 @@
-#ifndef __STATISTICS_H__
-#define __STATISTICS_H__
+#ifndef __META_H__
+#define __META_H__
 
 #include <algorithm>
 #include <filesystem>
@@ -59,10 +59,10 @@ private:
 
 
 template<typename Key>
-class Statistics {
+class Meta {
 public:
 
-	Statistics(
+	Meta(
 		const std::filesystem::path &path,
 		const Key &key
 	);
@@ -90,7 +90,7 @@ private:
 
 
 template<typename Key>
-Statistics<Key>::Statistics(
+Meta<Key>::Meta(
 	const std::filesystem::path &path,
 	const Key &key
 ) : path_(path), key_(key) {
@@ -133,14 +133,14 @@ Statistics<Key>::Statistics(
 
 
 template<typename Key>
-Row& Statistics<Key>::AddEntry() {
+Row& Meta<Key>::AddEntry() {
 	new_rows_.emplace_back();
 	return new_rows_.back();
 }
 
 
 template<typename Key>
-void Statistics<Key>::Write() {
+void Meta<Key>::Write() {
 	// merge new rows
 	for (const auto &row : new_rows_) {
 		auto key = key_(row);
@@ -176,4 +176,4 @@ void Statistics<Key>::Write() {
 
 }
 
-#endif	// __STATISTICS_H__
+#endif	// __META_H__

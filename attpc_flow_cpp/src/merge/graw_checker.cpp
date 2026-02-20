@@ -1,9 +1,11 @@
 #include "include/merge/graw_checker.h"
-#include "include/common/statistics.h"
+#include "include/common/meta.h"
+#include "include/common/file_lock.h"
 
 #include <algorithm>
 #include <iostream>
 #include <sstream>
+#include <fstream>
 
 namespace atflow {
 
@@ -12,7 +14,7 @@ std::string AsadResultTypeToString(const AsadResultType &type) {
 		case AsadResultType::Pass: return "Pass";
 		case AsadResultType::Broken: return "Broken";
 		case AsadResultType::Incomplete: return "Incomplete";
-		case AsadResultType::InContinuous: return "InContinuous";
+		case AsadResultType::Missing: return "Missing";
 		default: return "Unknown";
 	}
 }
@@ -59,7 +61,6 @@ CheckGrawResult GrawChecker::Check() {
 	// initialize result
 	CheckGrawResult result;
 	result.pass = true;
-	result.msg = "";
 
 	// report start if progress reporter is available
 	if (progress_reporter_) {
@@ -79,7 +80,6 @@ CheckGrawResult GrawChecker::Check() {
 			result.which.push_back(idx);
 			result.pass = false;
 		}
-		result.msg += asad_result.msg;
 		// check size
 		check_size += asad_result.size;
 
@@ -96,25 +96,12 @@ CheckGrawResult GrawChecker::Check() {
 		progress_reporter_->ReportFinish();
 	}
 
-	CheckEventId(start_event_, result);
-	CheckEventId(end_event_, result);
+	CheckEventId(start_event_, result, false);
+	CheckEventId(end_event_, result, true);
 	// record
 	Record();
-	// record result to log file
-	std::filesystem::path log_dir = workspace_dir_ / "log";
-	if (!std::filesystem::exists(log_dir)) {
-		std::filesystem::create_directories(log_dir);
-	}
-	std::string log_name =
-		"graw-event-id-check-" + std::to_string(run_) + ".log";
-	std::filesystem::path log_path(log_dir / log_name);
-	std::ofstream log(log_path);
-	if (result.pass) {
-		log << "Pass\n";
-	} else {
-		log << result.msg << "\n";
-	}
-	log.close();
+	// record result to log stream
+	if (result.pass) log_stream_ << "Pass\n";
 	return result;
 }
 
@@ -127,7 +114,6 @@ CheckAsadResult GrawChecker::CheckAsad(int cobo, int asad) {
 		.event = -1,
 		.type = AsadResultType::Pass,
 		.size = 0,
-		.msg = ""
 	};
 	// index
 	int idx = cobo*4+asad;
@@ -168,6 +154,7 @@ CheckAsadResult GrawChecker::CheckAsad(int cobo, int asad) {
 	for (const auto &file : files) {
 		// open file
 		GrawFrameHeaderReader reader(file);
+		bool first = true;
 		while (reader.Read()) {
 			// check header
 			if (
@@ -177,7 +164,7 @@ CheckAsadResult GrawChecker::CheckAsad(int cobo, int asad) {
 			) {
 				good_[idx] = false;
 				result.type = AsadResultType::Broken;
-				result.msg += "Broken," + std::to_string(end_event_[idx]) + "\n";
+				log_stream_ << "Broken," << idx << "," << end_event_[idx] << "\n";
 				return result;
 			}
 			// increase event count
@@ -191,12 +178,18 @@ CheckAsadResult GrawChecker::CheckAsad(int cobo, int asad) {
 			} else if (event_id != end_event_[idx] + 1) {
 				// check if event id is continuous
 				continuous_[idx] = false;
-				result.type = AsadResultType::InContinuous;
+				result.type = AsadResultType::Missing;
 				result.event = end_event_[idx];
-				result.msg += "InContinuous," + std::to_string(end_event_[idx]) + "\n";
+				log_stream_ << "Missing," << idx << "," << end_event_[idx] << "\n";
+				bad_events_.insert(end_event_[idx]);
 			}
 			// update event count
 			end_event_[idx] = event_id;
+			// record first event
+			if (first) {
+				first = false;
+				log_stream_ << "File first," << idx << "," <<  event_id << "\n";
+			}
 		}
 		// check size
 		result.size += std::filesystem::file_size(file);
@@ -206,15 +199,21 @@ CheckAsadResult GrawChecker::CheckAsad(int cobo, int asad) {
 }
 
 
-void GrawChecker::CheckEventId(int *id_list, CheckGrawResult &result) {
+void GrawChecker::CheckEventId(
+	int *id_list,
+	CheckGrawResult &result,
+	bool max
+) {
 	// get max events
-	int max_events = id_list[0];
+	int ref_event = id_list[0];
 	for (int idx = 0; idx < 42; ++idx) {
 		if (result.asad_results[idx].type != AsadResultType::Pass) {
 			continue;
 		}
-		if (id_list[idx] > max_events) {
-			max_events = id_list[idx];
+		if (max && id_list[idx] > ref_event) {
+			ref_event = id_list[idx];
+		} else if (!max && id_list[idx] < ref_event) {
+			ref_event = id_list[idx];
 		}
 	}
 	// check if event count less than max_events
@@ -222,24 +221,33 @@ void GrawChecker::CheckEventId(int *id_list, CheckGrawResult &result) {
 		if (result.asad_results[idx].type != AsadResultType::Pass) {
 			continue;
 		}
-		if (id_list[idx] != max_events) {
+		if (id_list[idx] != ref_event) {
 			complete_[idx] = false;
 			result.asad_results[idx].type = AsadResultType::Incomplete;
 			result.which.push_back(idx);
 			result.pass = false;
-			result.msg += "Incomplete\n";
+			log_stream_ << "Incomplete," << idx << "\n";
+			if (max) {
+				for (int id = id_list[idx]+1; id <= ref_event; ++id) {
+					bad_events_.insert(id);
+				}
+			} else {
+				for (int id = ref_event; id < id_list[idx]; ++id) {
+					bad_events_.insert(id);
+				}
+			}
 		}
 	}
 }
 
 
 void GrawChecker::Record() const {
-	// record result to statistics file
-	std::filesystem::path statistics_path(
-		workspace_dir_ / "statistics" / "merge_check.csv"
+	// record result to meta file
+	std::filesystem::path meta_path(
+		workspace_dir_ / "meta" / "merge_check.csv"
 	);
-	Statistics statistics(
-		statistics_path,
+	Meta meta(
+		meta_path,
 		[](const Row &row) {
 			int run = row.As<int>(0);
 			int cobo = row.As<int>(2);
@@ -248,18 +256,59 @@ void GrawChecker::Record() const {
 			return key;
 		}
 	);
-	statistics.SetHeader("Run,Execution,Cobo,Asad,events,start,end,good,continuous,complete");
+	meta.SetHeader("run,execution,cobo,asad,events,start,end,good,continuous,complete");
 	for (int idx = 0; idx < 42; ++idx) {
 		int cobo = idx / 4;
 		int asad = idx % 4;
-		statistics.AddEntry()
+		meta.AddEntry()
 			<< run_ << execution_id_ << cobo << asad
 			<< event_counts_[idx] << start_event_[idx] << end_event_[idx]
 			<< (good_[idx] ? "true" : "false")
 			<< (continuous_[idx] ? "true" : "false")
 			<< (complete_[idx] ? "true" : "false");
 	}
-	statistics.Write();
+	meta.Write();
+
+	// Write normal log
+	if (!log_stream_.str().empty()) {
+		std::filesystem::path log_path =
+			workspace_dir_
+			/ "log"
+			/ ("graw_event_id_" + std::to_string(run_) + ".log");
+		std::filesystem::create_directories(log_path.parent_path());
+		std::ofstream log_file(log_path);
+		if (log_file.is_open()) {
+			log_file << log_stream_.str();
+			log_file.close();
+		}
+	}
+
+	// Write bad events with file lock
+	if (!bad_events_.empty()) {
+		std::filesystem::path bad_event_path =
+			workspace_dir_
+			/ "run"
+			/ ("bad_event_" + std::to_string(run_) + ".txt");
+		std::filesystem::create_directories(bad_event_path.parent_path());
+
+		// Create lock file path
+		std::filesystem::path lock_path =
+			bad_event_path.parent_path()
+			/ (bad_event_path.stem().string() + ".lock");
+		// Use FileLock on lock file for thread-safe writing
+		FileLock lock(lock_path.c_str());
+		// Open data file for writing (overwrite mode)
+		std::ofstream bad_event_file(bad_event_path);
+		if (bad_event_file.is_open()) {
+			// Copy and sort bad events before writing
+			std::vector<int> sorted_events(bad_events_.begin(), bad_events_.end());
+			std::sort(sorted_events.begin(), sorted_events.end());
+			for (int event_id : sorted_events) {
+				bad_event_file << event_id << "\n";
+			}
+			bad_event_file.close();
+		}
+	}
 }
 
 }

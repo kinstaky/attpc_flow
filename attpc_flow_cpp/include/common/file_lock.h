@@ -21,6 +21,7 @@ public:
 			close(fd_);
 		}
 	}
+
 private:
 	// file descriptor
 	int fd_;

@@ -1,25 +1,35 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue'
-import { listExecutions } from '../api/workflow'
+import { ref, onMounted, onUnmounted, watch, computed } from 'vue'
+import { listExecutions, getExecutionHistory, type HistoryExecution } from '../api/workflow'
 import {
   useProgressWebSocket,
   ExecutionStatus,
-  TaskProgress,
 } from '../composables/useWebSocket'
+import ExecutionListItem from './ExecutionListItem.vue'
 
 const props = defineProps<{
   visible: boolean
+  workspace?: string
 }>()
 
 const emit = defineEmits<{
   'update:visible': [value: boolean]
 }>()
 
-const executions = ref<Array<ExecutionStatus>>([])
-const tasks = ref<Record<string, Record<string, TaskProgress>>>({})
+const activeTab = ref('active')
+const executions = ref<ExecutionStatus[]>([])
+const tasks = ref<Record<string, any>>({})
 const loading = ref(false)
-const opened = ref<Array<string>>([])
 const error = ref<string | null>(null)
+
+// History tab state
+const historyExecutions = ref<HistoryExecution[]>([])
+const historyLoading = ref(false)
+const historyError = ref<string | null>(null)
+const historyPage = ref(1)
+const historyPageSize = ref(10)
+const historyTotal = ref(0)
+const historyTotalPages = ref(0)
 
 // WebSocket management
 const { connect, disconnect, isConnectionActive } = useProgressWebSocket()
@@ -30,13 +40,13 @@ watch(
     if (newVisible && !oldVisible) {
       console.log("Open progress panel")
       connect("progressPanel", {
-        onTaskProgress: (execution_id: string, progress: Record<string, TaskProgress>) => {
+        onTaskProgress: (execution_id: string, progress: any) => {
           tasks.value[execution_id] = progress
         },
-        onExecutionProgress: (progress: Array<ExecutionStatus>) => {
+        onExecutionProgress: (progress: ExecutionStatus[]) => {
           executions.value = progress
         },
-        onExecutionComplete: (_execution_id: string, progress: Array<ExecutionStatus>) => {
+        onExecutionComplete: (_execution_id: string, progress: ExecutionStatus[]) => {
           executions.value = progress
           disconnect("progressPanel")
         },
@@ -44,6 +54,8 @@ watch(
           console.error('WebSocket error:', event)
         }
       })
+      // Load history when panel opens
+      fetchHistory()
     } else if (!newVisible && oldVisible) {
       console.log("Close progress panel")
       disconnect("progressPanel")
@@ -57,8 +69,6 @@ const fetchExecutions = async () => {
     loading.value = true
     error.value = null
     executions.value = await listExecutions()
-    console.log(executions.value)
-    console.log(opened.value)
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Failed to fetch executions'
     console.error('Failed to fetch executions:', err)
@@ -67,43 +77,36 @@ const fetchExecutions = async () => {
   }
 }
 
-// Status mappings - DRY approach
-const STATUS_CONFIG = {
-  completed: { color: 'success', icon: 'mdi-check-circle' },
-  running: { color: 'info', icon: 'mdi-play-circle' },
-  failed: { color: 'error', icon: 'mdi-close-circle' },
-  waiting: { color: 'warning', icon: 'mdi-clock' },
-  default: { color: 'grey', icon: 'mdi-help-circle' }
-} as const
-
-// Helper functions
-const getStatusConfig = (status: string) =>
-  STATUS_CONFIG[status as keyof typeof STATUS_CONFIG] ||
-  STATUS_CONFIG.default
-
-const formatTime = (timestamp: number | null) => {
-  if (!timestamp) return 'Not started'
-  return new Date(timestamp*1000).toLocaleString()
-}
-
-const formatPercentage = (percentage: number) => `${Math.round(percentage)}%`
-
-const getTaskProgressColor = (percentage: number) => {
-  // Use array-based approach for progress thresholds
-  const thresholds = [
-    { min: 100, color: 'success' },
-    { min: 0, color: 'info' },
-  ]
-
-  return thresholds.find(threshold => percentage >= threshold.min)?.color || 'grey'
-}
-
-const getExecutionProgress = (execution: ExecutionStatus) => {
-  if (execution.total_tasks > 0) {
-    return Math.round(execution.completed_tasks / execution.total_tasks * 100)
+// Fetch history from API
+const fetchHistory = async () => {
+  if (!props.workspace) {
+    historyError.value = 'No workspace configured'
+    return
   }
-  return 0
+  try {
+    historyLoading.value = true
+    historyError.value = null
+    const response = await getExecutionHistory(props.workspace, historyPage.value, historyPageSize.value)
+    historyExecutions.value = response.executions
+    historyTotal.value = response.total
+    historyTotalPages.value = response.total_pages
+  } catch (err) {
+    historyError.value = err instanceof Error ? err.message : 'Failed to fetch history'
+    console.error('Failed to fetch history:', err)
+  } finally {
+    historyLoading.value = false
+  }
 }
+
+// Watch for page changes
+watch(historyPage, () => {
+  fetchHistory()
+})
+
+// Computed property for reversed executions (newer at top)
+const reversedExecutions = computed<ExecutionStatus[]>(() => {
+  return [...executions.value].reverse()
+})
 
 // Initialize and cleanup
 onMounted(() => {
@@ -132,9 +135,9 @@ onUnmounted(() => {
       <v-btn
         icon
         variant="text"
-        @click="fetchExecutions"
-        :loading="loading"
-        title="Refresh executions"
+        @click="activeTab === 'active' ? fetchExecutions() : fetchHistory()"
+        :loading="activeTab === 'active' ? loading : historyLoading"
+        title="Refresh"
       >
         <v-icon>mdi-refresh</v-icon>
       </v-btn>
@@ -143,7 +146,15 @@ onUnmounted(() => {
       </v-btn>
     </v-toolbar>
 
-    <div class="pa-3">
+    <v-tabs v-model="activeTab" grow>
+      <v-tab value="active">Active</v-tab>
+      <v-tab value="history">History</v-tab>
+    </v-tabs>
+
+    <v-window v-model="activeTab" class="fill-height">
+      <!-- Active Executions Tab -->
+      <v-window-item value="active" class="fill-height">
+        <div class="pa-3">
       <!-- Loading state -->
       <div v-if="loading" class="text-center py-4">
         <v-progress-circular indeterminate size="24" class="mr-2" />
@@ -168,110 +179,79 @@ onUnmounted(() => {
         <div class="text-caption">Start a workflow to see execution progress</div>
       </div>
 
-      <!-- Executions list -->
-      <v-list
-        :opened="opened"
-        density="compact"
-        v-if="executions.length > 0"
-      >
-        <v-list-group
-          v-for="status in executions"
-          :value="status.execution_id"
-          :key="status.execution_id"
-        >
-          <template #activator="{ props }">
-            <v-list-item
-              v-bind="props"
-              class="execution-item"
-            >
-              <template v-slot:prepend>
-                <v-icon :color="getStatusConfig(status.status).color">
-                  {{ getStatusConfig(status.status).icon }}
-                </v-icon>
-              </template>
-
-              <v-list-item-title>
-                {{ status.execution_id }}
-                <v-chip
-                  :color="getStatusConfig(status.status).color"
-                  size="x-small"
-                  class="ml-2"
-                >
-                  {{ status.status }}
-                </v-chip>
-              </v-list-item-title>
-
-              <v-list-item-subtitle>
-                {{ status.workflow_id }} • {{ formatTime(status.started_at) }}
-                <span v-if="status.status == 'completed' || status.status == 'failed'">
-                  • {{ formatTime(status.completed_at) }}
-                </span>
-                • {{ status.completed_tasks }}/{{ status.total_tasks }} tasks
-              </v-list-item-subtitle>
-
-              <!-- Progress bar for execution -->
-              <div class="mt-2">
-                <v-progress-linear
-                  :model-value="getExecutionProgress(status)"
-                  :color="getStatusConfig(status.status).color"
-                  height="4"
-                />
-              </div>
-            </v-list-item>
-          </template>
-          <v-list-item
-            v-for="(progress, taskId) in tasks[status.execution_id]"
-            :key="taskId"
-            class="task-item mb-2"
-          >
-            <v-list-item-title>
-              {{ progress.task_name || "Task " + taskId }}
-              <span v-if="progress.run"> • run {{ progress.run }}</span>
-              <v-chip
-                :color="getStatusConfig(progress.status).color"
-                size="x-small"
-                class="ml-2"
-              >
-                {{ progress.status }}
-              </v-chip>
-            </v-list-item-title>
-            <v-progress-linear
-              :model-value="progress.percentage"
-              :color="getTaskProgressColor(progress.percentage)"
-              height="3"
-              class="mt-1"
+          <!-- Executions list (reversed - newer at top) -->
+          <div v-if="executions.length > 0" class="execution-list">
+            <ExecutionListItem
+              v-for="status in reversedExecutions"
+              :key="status.execution_id"
+              :execution="status"
+              :tasks="tasks[status.execution_id]"
+              :is-history="false"
             />
-            <template v-slot:append>
-              {{ formatPercentage(progress.percentage) }}
-            </template>
-          </v-list-item>
-        </v-list-group>
-      </v-list>
-    </div>
+          </div>
+        </div>
+      </v-window-item>
+
+      <!-- History Tab -->
+      <v-window-item value="history" class="fill-height">
+        <div class="pa-3">
+          <!-- Loading state -->
+          <div v-if="historyLoading" class="text-center py-4">
+            <v-progress-circular indeterminate size="24" class="mr-2" />
+            Loading history...
+          </div>
+
+          <!-- Error state -->
+          <div v-if="historyError" class="text-center py-4">
+            <v-alert type="error" variant="tonal" class="mb-2">
+              {{ historyError }}
+            </v-alert>
+            <div class="text-caption">Use the refresh button in the toolbar to retry</div>
+          </div>
+
+          <!-- Empty state -->
+          <div
+            v-if="!historyLoading && !historyError && historyExecutions.length === 0"
+            class="text-center py-4 text-grey"
+          >
+            <v-icon size="48" class="mb-2">mdi-history</v-icon>
+            <div>No history found</div>
+            <div class="text-caption">Completed executions will appear here</div>
+          </div>
+
+          <!-- History list (expandable like active tab) -->
+          <div v-if="historyExecutions.length > 0" class="execution-list">
+            <ExecutionListItem
+              v-for="history in historyExecutions"
+              :key="history.execution_id"
+              :execution="history"
+              :is-history="true"
+            />
+          </div>
+
+          <!-- Pagination for history -->
+          <div v-if="historyExecutions.length > 0" class="d-flex align-center justify-center pa-2">
+            <v-pagination
+              v-model="historyPage"
+              :length="historyTotalPages"
+              :total-visible="7"
+              density="comfortable"
+              size="small"
+            />
+          </div>
+        </div>
+      </v-window-item>
+    </v-window>
   </v-navigation-drawer>
 </template>
 
 <style scoped>
-.execution-item {
-  cursor: pointer;
-}
-
-.execution-item:hover {
-  background-color: rgba(var(--v-theme-surface-variant), 0.12);
-}
-
-.task-details {
-  padding-left: 16px;
-}
-
-.task-item {
-  background-color: rgba(var(--v-theme-surface), 0.5);
-  border-radius: 4px;
-  padding: 8px;
-}
-
 /* Position the panel to the right of the side nav */
 :deep(.status-panel) {
   left: 56px !important;
+}
+
+.execution-list {
+  border-top: 1px solid rgba(var(--v-border-color), 0.12);
 }
 </style>

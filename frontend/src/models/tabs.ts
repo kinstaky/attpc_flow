@@ -104,14 +104,13 @@ export const saveActiveTab = async () => {
   if (activeTab.value.saved) return
   const workflow = activeTab.value.workflow
   if (!workflow) return
-  updateWorkflow(workflow)
-    .then(() => {
-      const tab = tabState.tabs.find(t => t.id === activeTab.value!.id)
-      if (tab) tab.saved = true
-    })
-    .catch((error) => {
-      console.error(error)
-    })
+  try {
+    await updateWorkflow(workflow)
+    const tab = tabState.tabs.find(t => t.id === activeTab.value!.id)
+    if (tab) tab.saved = true
+  } catch (error) {
+    console.error(error)
+  }
 }
 
 export const renameActiveTab = async (name: string) => {

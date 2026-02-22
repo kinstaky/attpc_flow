@@ -4,6 +4,7 @@ import { useTheme } from 'vuetify'
 import {
   activeWorkflowAddNode,
   createTab,
+  activeWorkspace,
 } from '../models/tabs'
 import { listWorkflows } from '../api/workflow'
 import ExecutionProgressPanel from './ExecutionProgressPanel.vue'
@@ -183,7 +184,7 @@ const fetchWorkflows = async () => {
           @click="openProgress"
         >
           <v-icon>mdi-list-status</v-icon>
-          <v-tooltip activator="parent" location="end">Status</v-tooltip>
+          <v-tooltip activator="parent" location="end">Progress</v-tooltip>
         </v-btn>
       </div>
 
@@ -286,6 +287,7 @@ const fetchWorkflows = async () => {
   <!-- Progress Panel -->
   <ExecutionProgressPanel
     v-model:visible="showProgressPanel"
+    :workspace="activeWorkspace || undefined"
   />
 </template>
 

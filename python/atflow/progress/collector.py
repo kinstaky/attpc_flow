@@ -29,7 +29,7 @@ def zmq_collector_tqdm():
                 continue
 
             command = msg[1]
-            _execution_id = msg[2]
+            execution_id = msg[2]
             task_id = msg[3]
 
             if command == "start":
@@ -48,6 +48,7 @@ def zmq_collector_tqdm():
                 if task_id in progress_bars:
                     progress_bars[task_id].update(max(0, 100-progress_bars[task_id].n))
                     logging.info(f"Finished progress bar for task {task_id}.")
+                progress_store.finish_task(execution_id, task_id)
 
             else:
                 # Handle progress message (legacy format or percentage)
@@ -124,10 +125,10 @@ def zmq_collector_store():
                     )
 
                 else:
-                    # Handle progress message (legacy format or percentage)
+                    # Handle progress message
                     try:
                         percentage = int(msg[4])
-                        logging.debug(f"Received progress: Execution {execution_id}, Task {task_id}, {percentage}%")
+                        # logging.debug(f"Received progress: Execution {execution_id}, Task {task_id}, {percentage}%")
                         progress_store.update_task_progress(
                             execution_id=execution_id,
                             task_id=task_id,
@@ -155,7 +156,7 @@ def zmq_collector_store():
                     completed_tasks = int(msg[3])
                     total_tasks = int(msg[4])
                     # Handle progress message
-                    logging.debug(f"Received progress: Execution {execution_id}, {completed_tasks}/{total_tasks} tasks")
+                    # logging.debug(f"Received progress: Execution {execution_id}, {completed_tasks}/{total_tasks} tasks")
                     progress_store.update_execution_progress(
                         execution_id=execution_id,
                         completed_tasks=completed_tasks,

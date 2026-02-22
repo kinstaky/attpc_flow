@@ -6,35 +6,23 @@ Handles progress data storage and WebSocket broadcasting.
 import threading
 import time
 import logging
-import multiprocessing as mp
 from typing import Dict, List, Optional, Callable
 from pydantic import BaseModel
 from typing import Literal
-from multiprocessing import Queue
-from datetime import datetime, timezone
-
-# Global workflow queue for multiprocessing
-workflow_queue: Optional[Queue] = None
-
-def get_workflow_queue():
-    """Get or create the workflow queue. Survives uvicorn reloads."""
-    global workflow_queue
-    if workflow_queue is None:
-        workflow_queue = mp.Queue()
-    return workflow_queue
 
 class TaskProgress(BaseModel):
     task_id: str
     task_name: Optional[str] = None
     run: Optional[str] = None
     percentage: int
-    timestamp: float
+    timestamp: Optional[float] = None
     status: Literal["running", "failed", "completed"]
 
 class ExecutionStatus(BaseModel):
     execution_id: str
     workflow_id: str
     status: Literal["waiting", "running", "completed", "failed"]
+    run_mode: Optional[str] = None  # "ui", "workflow", "node"
     started_at: Optional[float] = None
     completed_at: Optional[float] = None
     completed_tasks: int = 0
@@ -62,9 +50,12 @@ class ProgressStore:
         if self._initialized:
             return
         self._initialized = True
+        # store execution status
         self.executions: Dict[str, ExecutionStatus] = {}  # {execution_id: ExecutionStatus}
-        self.tasks: Dict[str, Dict[str, TaskProgress]] = {}  # {task_id: [TaskProgress]}
-        self.task_info: Dict[str, Dict[str, TaskInfo]] = {}  # {task_id: TaskInfo}
+        # store task status
+        self.tasks: Dict[str, Dict[str, TaskProgress]] = {}  # {execution_id: {task_id: TaskProgress}}
+        # store task name
+        self.task_info: Dict[str, Dict[str, TaskInfo]] = {}  # {execution_id: {task_id: TaskInfo}}
         self.websocket_callbacks: List[Callable] = []  # [callbacks]
         self._data_lock = threading.Lock()
 
@@ -77,7 +68,7 @@ class ProgressStore:
         """Unregister a WebSocket callback."""
         with self._data_lock:
             try:
-                self.websocket_callbacks[id].remove(callback)
+                self.websocket_callbacks.remove(callback)
             except ValueError:
                 pass  # Callback already removed
 
@@ -178,6 +169,11 @@ class ProgressStore:
 
             # Create or update task progress with 100% and completed status
             task_info = self.task_info.get(execution_id, {}).get(task_id, {})
+            if (
+                task_id in self.tasks[execution_id]
+                and self.tasks[execution_id][task_id].status == "failed"
+            ):
+                return
             progress = TaskProgress(
                 task_id=task_id,
                 task_name=task_info.name,
@@ -261,7 +257,7 @@ class ProgressStore:
 
             logging.debug(f"Updated execution progress: {execution_id} -> {completed_tasks}/{total_tasks}")
 
-    def finish_execution(self, execution_id: str, total_tasks: int):
+    def finish_execution(self, execution_id: str, total_tasks: int) -> ExecutionStatus:
         """Finish an execution and notify WebSocket subscribers."""
         with self._data_lock:
             # Initialize execution data if needed
@@ -273,7 +269,7 @@ class ProgressStore:
             status.completed_tasks = total_tasks
             status.total_tasks = total_tasks
             status.completed_at = time.time()
-            status.status = "completed"
+            status.status = "completed" if total_tasks > 0 else "failed"
 
             # Notify subscribers about execution completion
             self._notify_subscribers({
@@ -285,8 +281,15 @@ class ProgressStore:
 
             logging.info(f"Finished execution {execution_id} with {total_tasks} tasks")
 
+            return status
+
     def _notify_subscribers(self, message: dict):
-        """Notify all WebSocket subscribers for an execution."""
+        """Notify all WebSocket subscribers for an execution.
+
+        Note: This method is called while _data_lock is held, so it must NOT
+        call unregister_websocket_callback (which also acquires _data_lock),
+        as _data_lock is non-reentrant and would deadlock.
+        """
         dead_callbacks = []
         for callback in self.websocket_callbacks:
             try:
@@ -295,9 +298,12 @@ class ProgressStore:
                 logging.error(f"Failed to notify subscriber: {e}")
                 dead_callbacks.append(callback)
 
-        # Remove failed callbacks
+        # Remove failed callbacks inline (already holding _data_lock)
         for callback in dead_callbacks:
-            self.unregister_websocket_callback(callback)
+            try:
+                self.websocket_callbacks.remove(callback)
+            except ValueError:
+                pass
 
     def create_execution(self, workflow) -> ExecutionStatus:
         with self._data_lock:
@@ -310,18 +316,6 @@ class ProgressStore:
             )
             self.executions[execution_id] = status
 
-            # Send validated workflow to message queue for workers
-            queue = get_workflow_queue()
-            if queue:
-                queue.put(
-                    (execution_id, workflow)
-                )
-            else:
-                # Fallback: process directly if no queue available
-                status.status = "failed"
-                status.completed_at = datetime.now(timezone.utc).isoformat()
-                raise Exception("Worker queue not available")
-
             return status
 
     def get_executions(self) -> Dict[str, ExecutionStatus]:
@@ -331,6 +325,8 @@ class ProgressStore:
     def get_progress(self, execution_id: str) -> Dict[str, TaskProgress]:
         """Get current progress for an execution."""
         with self._data_lock:
+            print("tasks keys:", list(self.tasks.keys()))
+            print("tasks info:", list(self.task_info.keys()))
             return self.tasks.get(execution_id, {}).copy()
 
     def cleanup_execution(self, execution_id: str):

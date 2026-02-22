@@ -12,6 +12,7 @@ export {}
 declare module 'vue' {
   export interface GlobalComponents {
     ATTPCFlow: typeof import('./src/components/ATTPCFlow.vue')['default']
+    ExecutionListItem: typeof import('./src/components/ExecutionListItem.vue')['default']
     ExecutionProgressPanel: typeof import('./src/components/ExecutionProgressPanel.vue')['default']
     FloatingButtons: typeof import('./src/components/FloatingButtons.vue')['default']
     FlowCanvas: typeof import('./src/components/FlowCanvas.vue')['default']

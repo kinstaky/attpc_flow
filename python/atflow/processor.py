@@ -4,6 +4,7 @@ Handles individual task execution and workflow orchestration.
 """
 
 import concurrent.futures
+import multiprocessing
 from enum import IntEnum
 from typing import Dict, Any
 import logging
@@ -12,6 +13,19 @@ import json
 from .node_manager import NodeManager
 from .workflow import Workflow
 from .progress.progress_store import ProgressStore
+
+# Use 'spawn' context to avoid fork + polars/rayon thread pool deadlock.
+# When polars is used in the parent process (e.g. via RunTagDB API calls),
+# its rayon thread pool is initialized. fork() inherits the dead thread pool
+# state, causing child processes to deadlock when they use polars.
+_mp_context = multiprocessing.get_context('spawn')
+
+def _init_worker():
+	"""Initialize worker process for spawn context.
+	With 'spawn', child processes start fresh and need to re-register nodes."""
+	# Import node modules to trigger @auto_register_node decorators
+	import importlib
+	importlib.import_module('atflow.nodes')
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -63,19 +77,20 @@ class Processor:
 		# Report execution start
 		self.progress_store.start_execution(execution_id, len(self.tasks))
 
-		with concurrent.futures.ProcessPoolExecutor(max_workers=self.threads) as executor:
+		with concurrent.futures.ProcessPoolExecutor(
+			max_workers=self.threads,
+			mp_context=_mp_context,
+			initializer=_init_worker,
+		) as executor:
 			# submit initial ready tasks
 			self._submit_ready_tasks(executor)
 			while self.futures_to_task:
-				# wait until any task is completed
-				done, _ = concurrent.futures.wait(
-					self.futures_to_task.keys(),
-					return_when=concurrent.futures.FIRST_COMPLETED,
-				)
-				for future in done:
+				# Use as_completed to iterate over futures as they complete
+				for future in concurrent.futures.as_completed(self.futures_to_task):
 					# get task from future
-					task = self.futures_to_task.pop(future)
-
+					task = self.futures_to_task.pop(future, None)
+					if task is None:
+						continue
 					# check result
 					try:
 						# success
@@ -104,10 +119,14 @@ class Processor:
 							completed_tasks,
 							len(self.tasks)
 						)
+						logger.debug(f"Execution {execution_id} progress: {completed_tasks}/{len(self.tasks)}")
 
 					# submit new tasks
 					self._reduce_waiting(task["id"])
 					self._submit_ready_tasks(executor)
+
+					# Break out of as_completed loop to re-evaluate futures_to_task
+					break
 
 		# Report execution finish
 		self.progress_store.finish_execution(execution_id, len(self.tasks))
@@ -160,7 +179,7 @@ class Processor:
 					"environment": {
 						"run": run,
 						"run_str": str(run),
-						"workspace_dir": self.environment["workspace"],
+						"workspace": self.environment["workspace"],
 						**self.environment
 					},
 					"ports": [],
@@ -275,6 +294,7 @@ class Processor:
 			if task["status"] != TaskStatus.READY:
 				continue
 			task["status"] = TaskStatus.QUEUED
+			# self.progress_store.start_task(task["execution_id"], str(task["id"]))
 			future = executor.submit(run_node, task)
 			self.futures_to_task[future] = task
 

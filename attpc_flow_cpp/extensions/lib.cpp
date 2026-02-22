@@ -12,8 +12,8 @@ using namespace nb::literals;
 std::string check_graw_event_id(
 	std::string execution_id,
 	int task_id,
-	std::string workspace_dir,
-	std::string graw_dir,
+	std::string workspace,
+	std::string graw,
 	int run
 ) {
 	std::unique_ptr<atflow::ProgressReporter> progress_reporter = nullptr;
@@ -32,8 +32,8 @@ std::string check_graw_event_id(
 
 	atflow::GrawChecker checker(
 		execution_id,
-		workspace_dir,
-		graw_dir,
+		workspace,
+		graw,
 		run,
 		std::move(progress_reporter)
 	);
@@ -70,8 +70,8 @@ NB_MODULE(_lib, m) {
 		&check_graw_event_id,
 		"execution_id"_a,
 		"task_id"_a,
-		"workspace_dir"_a,
-		"graw_dir"_a,
+		"workspace"_a,
+		"graw"_a,
 		"run"_a,
 		"This function check single run graw files."
 	);

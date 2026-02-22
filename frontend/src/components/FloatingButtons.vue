@@ -229,6 +229,14 @@ const runWorkflow = async () => {
 
     // Connect to WebSocket for completion notification
     connect("startBtn", {
+      onExecutionProgress: (executions) => {
+        // Handle case where execution already completed before WebSocket connected
+        const exec = executions.find(e => e.execution_id === executionStatus.execution_id)
+        if (exec && (exec.status === 'completed' || exec.status === 'failed')) {
+          console.log('Execution already finished (detected from initial state)')
+          isExecuting.value = false
+        }
+      },
       onExecutionComplete: (execution_id: string) => {
         if (execution_id != executionStatus.execution_id) {
           return

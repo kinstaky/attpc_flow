@@ -8,7 +8,6 @@ import asyncio
 import logging
 import json
 import os
-from urllib import response
 import uvicorn
 from typing import Dict, List, Optional
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -19,13 +18,16 @@ from fastapi.exceptions import HTTPException
 from pydantic import BaseModel
 from typing import Dict, List, Optional, Any
 from pathlib import Path
+from multiprocessing import Queue
 
 from atflow.node_manager import NodeManager
 from atflow.nodes import *  # Import all nodes to register them
 from atflow.progress.progress_store import (
+    TaskProgress,
     progress_store,
     ExecutionStatus,
 )
+from .progress.execution_meta import ExecutionMetaManager
 from .run_tag_db import RunTagDB
 from .workflow import Workflow
 
@@ -66,6 +68,16 @@ class NodeResponse(BaseModel):
 	outputs: Optional[Dict[str, str]] = None
 	properties: Optional[Dict[str, str]] = None
 	parameters: Optional[Dict[str, str]] = None
+
+class ExecutionWithTasks(ExecutionStatus):
+	tasks: Dict[str, TaskProgress]
+
+class ExecutionHistoryResponse(BaseModel):
+	executions: List[ExecutionWithTasks]
+	total: int
+	page: int
+	page_size: int
+	total_pages: int
 
 # Storage
 WORKFLOWS_DIR = Path("workflows")
@@ -120,6 +132,7 @@ def save_opened_workflows(workflows: List[str]):
 class WebSocketManager:
 	def __init__(self):
 		self.active_connections: List[WebSocket] = []
+		self._callbacks: Dict[WebSocket, object] = {}
 		self.loop = None  # Will be set when server starts
 
 	async def connect(self, websocket: WebSocket):
@@ -139,10 +152,9 @@ class WebSocketManager:
 					asyncio.run_coroutine_threadsafe(websocket.send_json(message), self.loop)
 			except Exception as e:
 				logging.error(f"Failed to send WebSocket message: {e}")
-				# Remove this connection from active connections
-				self.disconnect(websocket)
 
 		progress_store.register_websocket_callback(progress_callback)
+		self._callbacks[websocket] = progress_callback
 
 	def disconnect(self, websocket: WebSocket):
 		try:
@@ -151,8 +163,9 @@ class WebSocketManager:
 			pass  # Connection already removed
 
 		# Unregister callback from progress store
-		# Note: We don't have the callback reference, so cleanup happens automatically
-		# when callbacks fail in progress_callback function
+		callback = self._callbacks.pop(websocket, None)
+		if callback:
+			progress_store.unregister_websocket_callback(callback)
 
 # Global WebSocket manager instance
 websocket_manager = WebSocketManager()
@@ -338,24 +351,22 @@ async def get_workflow(workflow_id: str):
 
 @app.put("/workflows/{workflow_id}", response_model=Workflow)
 async def update_workflow(workflow_id: str, workflow: Workflow):
-	"""Update an existing workflow."""
-	try:
-		# Check if workflow exists
-		file_path = WORKFLOWS_DIR / f"{workflow_id}.json"
-		if not file_path.exists():
-			raise HTTPException(status_code=404, detail=f"Workflow '{workflow_id}' not found")
+    def _save():
+        file_path = WORKFLOWS_DIR / f"{workflow_id}.json"
+        if not file_path.exists():
+            raise FileNotFoundError(f"Workflow '{workflow_id}' not found")
+        with open(file_path, 'w') as f:
+            json.dump(workflow.model_dump(by_alias=True), f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        return workflow
 
-		# Save updated workflow
-		with open(file_path, 'w') as f:
-			json.dump(workflow.model_dump(by_alias=True), f, indent=2)
-			f.flush()
-			os.fsync(f.fileno())
-
-		return workflow
-	except HTTPException:
-		raise
-	except Exception as e:
-		raise HTTPException(status_code=500, detail=f"Failed to update workflow: {str(e)}")
+    try:
+        return await asyncio.to_thread(_save)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail=f"Workflow '{workflow_id}' not found")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update workflow: {str(e)}")
 
 @app.delete("/workflows/{workflow_id}")
 async def delete_workflow(workflow_id: str):
@@ -400,6 +411,16 @@ async def close_workflow(workflow_name: str):
 	except Exception as e:
 		raise HTTPException(status_code=500, detail=f"Failed to close workflow: {str(e)}")
 
+# Global workflow queue for multiprocessing
+workflow_queue: Optional[Queue] = None
+
+def get_workflow_queue():
+    """Get or create the workflow queue. Survives uvicorn reloads."""
+    global workflow_queue
+    if workflow_queue is None:
+        workflow_queue = Queue()
+    return workflow_queue
+
 @app.post("/executions/{workflow_id}", response_model=ExecutionStatus)
 async def execute_workflow(workflow_id: str):
 	"""Execute a workflow."""
@@ -415,6 +436,14 @@ async def execute_workflow(workflow_id: str):
 
 		# Execute workflow using progress store
 		status = progress_store.create_execution(workflow)
+
+		try:
+			queue = get_workflow_queue()
+			if queue:
+				queue.put((status.execution_id, workflow))
+		except Exception as e:
+			logging.warning(f"Failed to enqueue workflow: {e}")
+			status = progress_store.finish_execution(status.execution_id, 0)
 
 		return status
 	except HTTPException:
@@ -459,6 +488,32 @@ async def list_executions():
 	except Exception as e:
 		raise HTTPException(status_code=500, detail=f"Failed to list executions: {str(e)}")
 
+@app.get("/executions/history", response_model=ExecutionHistoryResponse)
+async def list_execution_history(workspace: str, page: int = 1, page_size: int = 10):
+	"""
+	Get paginated execution history from database.
+
+	Args:
+		workspace: Workspace directory path
+		page: Page number (1-indexed)
+		page_size: Number of items per page
+	"""
+	try:
+		executions, total = ExecutionMetaManager.get_executions(
+			workspace=workspace,
+			page=page,
+			page_size=page_size
+		)
+		return {
+			"executions": executions,
+			"total": total,
+			"page": page,
+			"page_size": page_size,
+			"total_pages": (total + page_size - 1) // page_size
+		}
+	except Exception as e:
+		raise HTTPException(status_code=500, detail=f"Failed to list execution history: {str(e)}")
+
 @app.get("/executions/{execution_id}", response_model=ExecutionStatus)
 async def get_execution_status(execution_id: str):
 	"""Get specific execution status."""
@@ -491,7 +546,6 @@ async def list_runs(workspace: str):
 async def list_tags(workspace: str):
 	"""Get all tag groups with their unique values."""
 	try:
-		print(run_tag_db.list_all_tags(Path(workspace)))
 		return run_tag_db.list_all_tags(Path(workspace))
 	except Exception as e:
 		raise HTTPException(status_code=500, detail=f"Failed to list tag groups: {str(e)}")

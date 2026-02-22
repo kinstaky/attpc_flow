@@ -1,7 +1,13 @@
 import { Workflow } from '../models/workflow'
+import type { TaskProgress, ExecutionStatus } from '../composables/useWebSocket'
 
 // API base URL
 const API_BASE = ''
+
+// Execution with tasks for history
+export type HistoryExecution = ExecutionStatus & {
+  tasks: Record<string, TaskProgress>
+}
 
 // Create new workflow via POST API
 export const createWorkflow = async (workflow: Workflow): Promise<void> => {
@@ -105,6 +111,29 @@ export const listExecutions = async () => {
   const response = await fetch(`${API_BASE}/executions`)
   if (!response.ok) {
     throw new Error(`Failed to fetch executions: ${response.statusText}`)
+  }
+  return await response.json()
+}
+
+// Get paginated execution history
+export interface ExecutionHistoryResponse {
+  executions: HistoryExecution[]
+  total: number
+  page: number
+  page_size: number
+  total_pages: number
+}
+
+export const getExecutionHistory = async (
+  workspace: string,
+  page: number = 1,
+  pageSize: number = 10
+): Promise<ExecutionHistoryResponse> => {
+  const response = await fetch(
+    `${API_BASE}/executions/history?workspace=${encodeURIComponent(workspace)}&page=${page}&page_size=${pageSize}`
+  )
+  if (!response.ok) {
+    throw new Error(`Failed to fetch execution history: ${response.statusText}`)
   }
   return await response.json()
 }

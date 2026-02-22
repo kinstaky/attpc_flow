@@ -17,6 +17,8 @@ from datetime import datetime
 
 from .processor import Processor
 from .progress.collector import zmq_collector_tqdm, zmq_collector_store
+from .progress.execution_meta import ExecutionMetaManager
+from .progress.progress_store import ExecutionStatus, TaskProgress, progress_store
 from .nodes import *
 from .workflow import Workflow
 
@@ -87,13 +89,6 @@ def start_server(host="0.0.0.0", port=8000, reload=False):
 	logger.info(f"Starting ATTPC Flow server on http://{host}:{port}")
 	run_server(host=host, port=port, reload=reload)
 
-def start_worker():
-	"""Start worker thread only."""
-	logger.info("Starting ATTPC Flow worker")
-	workflow_queue = mp.Queue()
-	worker_thread = threading.Thread(target=_workflow_worker, args=(workflow_queue,))
-	worker_thread.start()
-
 def start_full_system(host="0.0.0.0", port=8000, reload=False):
 	"""Start complete ATTPC Flow system (server + worker + collector)."""
 
@@ -138,16 +133,48 @@ def start_full_system(host="0.0.0.0", port=8000, reload=False):
 					if workflow is None:
 						break
 
+					workspace = workflow.workspace
+
 					worker_logger.info(f"Processing execution {execution_id}")
 
-					# Run workflow
-					Processor.run(
-						execution_id=execution_id,
-						workflow=workflow,
-					)
+					# Create execution meta directory and save workflow.json
+					try:
+						ExecutionMetaManager.create_execution_meta(
+							workspace=workspace,
+							execution_id=execution_id,
+							workflow=workflow,
+							run_mode="ui",
+						)
+						worker_logger.info(f"Created execution meta directory: {workspace}/meta/{execution_id}")
+					except Exception as e:
+						worker_logger.error(f"Failed to create execution meta: {e}")
 
-					# Update status
-					worker_logger.info(f"Completed execution {execution_id}")
+					# Run workflow
+					try:
+						Processor.run(
+							execution_id=execution_id,
+							workflow=workflow,
+						)
+						worker_logger.info(f"Completed execution {execution_id}")
+					except Exception as e:
+						worker_logger.error(f"Execution {execution_id} failed: {e}")
+
+					try:
+						# Get execution status from progress_store
+						executions = progress_store.get_executions()
+						execution_status = executions.get(execution_id)
+						# Get task info from progress store
+						tasks_progress = progress_store.get_progress(execution_id)
+						if execution_status is None:
+							raise ValueError(f"Execution {execution_id} not found in progress store")
+						ExecutionMetaManager.write_meta(
+							workspace=workspace,
+							execution_status=execution_status,
+							tasks_progress=tasks_progress,
+						)
+						worker_logger.info(f"Wrote meta for execution {execution_id}")
+					except Exception as e:
+						worker_logger.error(f"Failed to write meta: {e}")
 
 				except mp.queues.Empty:
 					continue  # Timeout, check again
@@ -161,7 +188,7 @@ def start_full_system(host="0.0.0.0", port=8000, reload=False):
 
 	try:
 		# Initialize server with auto-created queue
-		from .progress.progress_store import get_workflow_queue
+		from .server import get_workflow_queue
 		workflow_queue = get_workflow_queue()
 
 		collector_thread = threading.Thread(target=zmq_collector_store)
@@ -271,16 +298,32 @@ def process_workflow(workflow_file):
 		print(f"Error: Failed to load workflow file: {e}")
 		sys.exit(1)
 
-	# Generate timestamp and execution ID
-	timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-	execution_id = str(uuid.uuid4())
+	# Create workflow object to get workspace
+	workflow = Workflow.model_validate(workflow_data)
+	workspace = workflow.workspace
+	# create execution in progress store
+	execution_id = progress_store.create_execution(workflow).execution_id
+
+	# Create execution meta directory and save workflow.json
+	try:
+		ExecutionMetaManager.create_execution_meta(
+			workspace=workspace,
+			execution_id=execution_id,
+			workflow=workflow,
+			run_mode="workflow",
+		)
+		logger.info(f"Created execution meta directory: {workspace}/meta/{execution_id}")
+	except Exception as e:
+		logger.error(f"Failed to create execution meta: {e}")
 
 	# Create logs directory if it doesn't exist
 	logs_dir = "logs"
 	os.makedirs(logs_dir, exist_ok=True)
 
-	# Format log file name as logs/{workflow_id}-{timestamp}-{execution_id}.txt
-	log_file = f"{logs_dir}/{workflow_id}-{timestamp}-{execution_id}.txt"
+	# Generate timestamp
+	timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+	# Format log file name as logs/{workflow_id}-{timestamp}-{execution_id}.log
+	log_file = f"{logs_dir}/{workflow_id}-{timestamp}-{execution_id}.log"
 
 	# Configure logging to file
 	file_handler = logging.FileHandler(log_file, mode='w')
@@ -308,9 +351,6 @@ def process_workflow(workflow_file):
 		collector_thread.start()
 		logger.info("Started ZMQ collector for terminal progress bar")
 
-		# Create workflow object
-		workflow = Workflow.model_validate(workflow_data)
-
 		# Use the Processor.run class method
 		Processor.run(
 			execution_id=execution_id,
@@ -327,12 +367,31 @@ def process_workflow(workflow_file):
 		print(f"Check {log_file} for detailed logs.")
 
 	except Exception as e:
+		execution_status = "failed"
 		# Send termination message to collector
 		send_terminal_message()
 		collector_thread.join(timeout=2)
 		logger.error(f"Workflow execution failed: {e}")
 		print(f"\nError: Workflow execution failed: {e}")
 		print(f"Check {log_file} for detailed logs.")
+
+	# Write to db after execution finishes
+	try:
+		# Get execution status from progress_store (if available)
+		executions = progress_store.get_executions()
+		execution_status = executions.get(execution_id)
+		tasks_progress = progress_store.get_progress(execution_id)
+		print("tasks_progress:", tasks_progress)
+		if execution_status is None:
+			raise ValueError(f"Execution {execution_id} not found in progress store")
+		ExecutionMetaManager.write_meta(
+			workspace=workspace,
+			execution_status=execution_status,
+			tasks_progress=tasks_progress,
+		)
+		logger.info(f"Wrote meta for execution {execution_id}")
+	except Exception as e:
+		logger.error(f"Failed to write meta: {e}")
 
 
 def run_node(node_name, node_args, list_nodes=False):
@@ -397,8 +456,13 @@ def run_node(node_name, node_args, list_nodes=False):
 		sys.exit(1)
 
 	# Execute the node
+	workspace = params.get("workspace")
+	if workspace is None:
+		raise ValueError("workspace parameter is required.")
+
 	try:
 		logger.info(f"Running node '{node_name}' with parameters: {params}")
+		started_at = datetime.now().timestamp()
 
 		# Extract parameter values (excluding None values)
 		execution_params = {}
@@ -408,15 +472,31 @@ def run_node(node_name, node_args, list_nodes=False):
 
 		if "execution_id" not in execution_params:
 			execution_params["execution_id"] = str(uuid.uuid4())
+
+		execution_id = execution_params["execution_id"]
+
+		# Create execution meta directory (no workflow.json for single node)
+		try:
+			ExecutionMetaManager.create_execution_meta(
+				workspace=workspace,
+				execution_id=execution_id,
+				workflow="node",  # No workflow for single node execution
+				run_mode="node",
+			)
+			logger.info(f"Created execution meta directory: {workspace}/meta/{execution_id}")
+		except Exception as e:
+			logger.error(f"Failed to create execution log: {e}")
+
 		# Execute node
 		result = manager.execute_node(
 			name=node_name,
-			execution_id=execution_params["execution_id"],
+			execution_id=execution_id,
 			task_id=-1,
 			environment={},
 			inputs={},
 			properties=execution_params
 		)
+		execution_status = "completed"
 
 		# Print results
 		print(f"\nNode '{node_name}' executed successfully!")
@@ -424,9 +504,41 @@ def run_node(node_name, node_args, list_nodes=False):
 		print(f"Result: {result}")
 
 	except Exception as e:
+		execution_status = "failed"
 		logger.error(f"Failed to execute node '{node_name}': {e}")
 		print(f"Error: Failed to execute node: {e}")
-		sys.exit(1)
+
+	# Write meta after execution finishes
+	completed_at = datetime.now().timestamp()
+	try:
+		# create new ExecutionStatus
+		execution_status_obj = ExecutionStatus(
+			execution_id=execution_id,
+			workflow_id=node_name,
+			status=execution_status,
+			run_mode="node",
+			started_at=started_at,
+			completed_at=completed_at,
+			total_tasks=0,
+			completed_tasks=0,
+		)
+		tasks_progress = {
+			"-1": TaskProgress(
+				task_id="-1",
+				task_name=node_name,
+				run=execution_params.get("run", None),
+				percentage=100,
+				status=execution_status,
+			)
+		}
+		ExecutionMetaManager.write_meta(
+			workspace=workspace,
+			execution_status=execution_status_obj,
+			tasks_progress=tasks_progress,
+		)
+		logger.info(f"Wrote meta for node execution {execution_id}")
+	except Exception as e:
+		logger.error(f"Failed to write meta: {e}")
 
 
 def main():

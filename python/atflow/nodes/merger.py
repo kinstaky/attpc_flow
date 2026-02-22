@@ -13,8 +13,8 @@ from ..run_tag_db import RunTagDB
 class CheckGrawEventIdParameters(BaseModel):
     execution_id: str
     task_id: int
-    workspace_dir: str
-    graw_dir: str
+    workspace: str
+    graw: str
     run: int
 
 
@@ -46,7 +46,7 @@ class CheckGrawEventIdNode(Node):
 
     @property
     def properties(self) -> Dict[str, str]:
-        return {"graw_dir": "str", "run": "int"}
+        return {"graw": "str", "run": "int"}
 
     @property
     def parameters_model(self) -> Type[BaseModel]:
@@ -55,19 +55,19 @@ class CheckGrawEventIdNode(Node):
     def execute(self, **kwargs: Any) -> List[Any]:
         execution_id = kwargs.get("execution_id")
         task_id = kwargs.get("task_id")
-        workspace_dir = kwargs.get("workspace_dir")
-        graw_dir = kwargs.get("graw_dir")
+        workspace = kwargs.get("workspace")
+        graw = kwargs.get("graw")
         run = kwargs.get("run")
 
         result = check_graw_event_id(
             execution_id=execution_id,
             task_id=task_id,
-            graw_dir=graw_dir,
-            workspace_dir=workspace_dir,
+            graw=graw,
+            workspace=workspace,
             run=run,
         )
         db = RunTagDB()
-        db.add_tag_group(workspace=workspace_dir, name="evtid", default_value="uncheck")
-        db.set_run_tag(workspace=workspace_dir, run=run, tag=f"evtid:{result}")
+        db.add_tag_group(workspace=workspace, name="evtid", default_value="uncheck")
+        db.set_run_tag(workspace=workspace, run=run, tag=f"evtid:{result}")
 
         return [run] if result == "pass" else [None]

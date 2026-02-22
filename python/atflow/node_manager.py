@@ -323,7 +323,15 @@ class NodeManager:
         validated_params = node.validate_parameters(params)
 
         # Execute node
-        return node.execute(**validated_params)
+        result = node.execute(**validated_params)
+
+        # Write metadata
+        workspace = params.get("workspace")
+        run = params.get("run")
+        if workspace is not None and run is not None:
+            node.write_meta(workspace, execution_id, task_id, run)
+
+        return result
 
     def get_node_info(self, name: str) -> Optional[Dict[str, Any]]:
         """Get node information including schemas.

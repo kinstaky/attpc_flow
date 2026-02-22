@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import json
+import sqlite3
 from abc import ABC, abstractmethod
+from pathlib import Path
 from typing import Any, Dict, List, Type
 
 from pydantic import BaseModel
@@ -74,6 +77,51 @@ class Node(ABC):
             List of output values.
         """
         ...
+
+    def write_meta(
+        self,
+        workspace: str,
+        execution_id: str,
+        task_id: int,
+        run: str,
+    ) -> None:
+        """Write metadata to sqlite3 database after node execution.
+
+        Writes to ${workspace}/meta/${node_name}.db
+
+        Args:
+            workspace: Workspace directory path
+            execution_id: Execution identifier
+            task_id: Task identifier
+            meta_data: Dictionary of metadata to store
+        """
+        meta_dir = Path(workspace) / "meta"
+        meta_dir.mkdir(parents=True, exist_ok=True)
+
+        db_path = meta_dir / f"{self.name}.db"
+        conn = sqlite3.connect(str(db_path))
+        conn.execute("PRAGMA journal_mode=WAL")
+
+        # Create table for this execution
+        conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS meta (
+                run TEXT PRIMARY KEY NOT NULL,
+                execution_id TEXT NOT NULL,
+                task_id INTEGER NOT NULL,
+                version TEXT NOT NULL
+            )
+        """)
+
+        # insert metadata
+        conn.execute("""
+            INSERT OR REPLACE INTO meta (
+                run, execution_id, task_id, version
+            ) VALUES (?, ?, ?, ?)
+        """,
+            (run, execution_id, task_id, self.version)
+        )
+        conn.commit()
+        conn.close()
 
     def validate_parameters(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Validate parameters using Pydantic model if available.

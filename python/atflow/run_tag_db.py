@@ -3,71 +3,144 @@ Run tag database utilities.
 Initialize run tag database from CSV and provide methods for querying runs by tags.
 """
 
-import polars as pl
-import os
+import csv
+import sqlite3
+from io import StringIO
 from pathlib import Path
 from typing import List, Dict, Optional
-from dataclasses import dataclass
-import time
+from datetime import datetime, timedelta
 
-@dataclass
-class RunDBInfo:
-    db_path: Path
-    df: pl.DataFrame
-    last_modified: float
+
+# Columns that are part of the core schema, not user-defined tag groups.
+_CORE_COLUMNS = {"run", "start", "stop", "duration"}
 
 
 class RunTagDB:
-    """Database for a single workspace."""
+    """Database for a single workspace backed by SQLite."""
+
     def __init__(self):
-        self._db_map: Dict[str, RunDBInfo] = {}
+        self._conn_map: Dict[str, sqlite3.Connection] = {}
 
-    def _load(self, workspace: Path) -> pl.DataFrame:
-        path = str(workspace)
-        """Load the database from parquet file with auto-reload on modification."""
-        if path not in self._db_map:
-            self._db_map[path] = RunDBInfo(
-                db_path=Path(path) / "run/run_tags.parquet",
-                df=None,
-                last_modified=None
+    def _db_path(self, workspace: Path) -> Path:
+        return Path(workspace) / "run/run_tags.db"
+
+    def _conn(self, workspace: Path) -> sqlite3.Connection:
+        """Return (and cache) a sqlite3 connection for *workspace*."""
+        key = str(workspace)
+        if key not in self._conn_map:
+            db_path = self._db_path(workspace)
+            db_path.parent.mkdir(parents=True, exist_ok=True)
+            conn = sqlite3.connect(str(db_path))
+            conn.row_factory = sqlite3.Row
+            conn.execute("PRAGMA journal_mode=WAL")
+            self._conn_map[key] = conn
+            self._ensure_table(conn)
+            # Auto-import from CSV when the table is empty and a CSV exists
+            if self._row_count(conn) == 0 and (workspace / "run/run.csv").exists():
+                self._import_csv(conn, workspace / "run/run.csv")
+        return self._conn_map[key]
+
+    @staticmethod
+    def _ensure_table(conn: sqlite3.Connection):
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS runs (
+                run     INTEGER PRIMARY KEY,
+                start   TEXT,
+                stop    TEXT,
+                duration TEXT,
+                experiment TEXT
             )
-        db_info = self._db_map[path]
-        if db_info.df is None:
-            if db_info.db_path.exists():
-                db_info.df = pl.read_parquet(db_info.db_path)
-                db_info.last_modified = db_info.db_path.stat().st_mtime
-            elif (workspace / "run/run.csv").exists():
-                self.init_from_csv(workspace)
-            else:
-                db_info.df = pl.DataFrame({
-                    "run": pl.Series([], dtype=pl.Int64),
-                    "start": pl.Series([], dtype=pl.Datetime),
-                    "stop": pl.Series([], dtype=pl.Datetime),
-                    "duration": pl.Series([], dtype=pl.Duration),
-                    "experiment": pl.Series([], dtype=pl.Utf8),
-                })
-                self._save(workspace)
-        else:
-            current_mtime = db_info.db_path.stat().st_mtime
-            if current_mtime > db_info.last_modified:
-                db_info.df = pl.read_parquet(db_info.db_path)
-                db_info.last_modified = current_mtime
-        return self._db_map[path].df
+        """)
+        conn.commit()
 
-    def _save(self, workspace: Path):
-        """Save the database to parquet file."""
-        if str(workspace) not in self._db_map:
-            return
-        db_info = self._db_map[str(workspace)]
-        if db_info.df is not None:
-            # Ensure data directory exists
-            db_info.db_path.parent.mkdir(parents=True, exist_ok=True)
-            db_info.df.write_parquet(db_info.db_path)
-            db_info.last_modified = db_info.db_path.stat().st_mtime
+    @staticmethod
+    def _row_count(conn: sqlite3.Connection) -> int:
+        return conn.execute("SELECT COUNT(*) FROM runs").fetchone()[0]
 
-    def refresh(self, workspace: Path):
-        """Force refresh the database from disk."""
-        self._load(workspace)
+    # ------------------------------------------------------------------
+    # CSV import
+    # ------------------------------------------------------------------
+    def _import_csv(self, conn: sqlite3.Connection, csv_path: Path):
+        """Populate the database from a CSV file."""
+        with open(csv_path, newline="") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                run_val = row.get("run")
+                if run_val is None or run_val.strip() == "":
+                    continue
+                run = int(run_val)
+
+                date_s = row.get("date", "").strip()
+                start_s = row.get("start", "").strip()
+                stop_s = row.get("stop", "").strip()
+                experiment = row.get("experiment")
+
+                # Replace "#N/A" / empty with None
+                date_s = None if date_s in ("#N/A", "") else date_s
+                start_s = None if start_s in ("#N/A", "") else start_s
+                stop_s = None if stop_s in ("#N/A", "") else stop_s
+
+                start_dt: Optional[datetime] = None
+                stop_dt: Optional[datetime] = None
+                duration_s: Optional[str] = None
+
+                if date_s and start_s:
+                    try:
+                        start_dt = datetime.strptime(f"{date_s} {start_s}", "%m/%d/%Y %H:%M")
+                    except ValueError:
+                        pass
+                if date_s and stop_s:
+                    try:
+                        stop_dt = datetime.strptime(f"{date_s} {stop_s}", "%m/%d/%Y %H:%M")
+                    except ValueError:
+                        pass
+
+                # Handle overnight runs
+                if start_dt and stop_dt and stop_dt < start_dt:
+                    stop_dt += timedelta(days=1)
+
+                if start_dt and stop_dt:
+                    duration_s = str(stop_dt - start_dt)
+
+                conn.execute(
+                    "INSERT OR REPLACE INTO runs (run, start, stop, duration, experiment) VALUES (?, ?, ?, ?, ?)",
+                    (
+                        run,
+                        start_dt.isoformat() if start_dt else None,
+                        stop_dt.isoformat() if stop_dt else None,
+                        duration_s,
+                        experiment,
+                    ),
+                )
+        conn.commit()
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+    def _columns(self, conn: sqlite3.Connection) -> List[str]:
+        """Return the column names of the runs table."""
+        cur = conn.execute("PRAGMA table_info(runs)")
+        return [row[1] for row in cur.fetchall()]
+
+    def _rows_to_dicts(self, rows) -> List[Dict]:
+        if not rows:
+            return []
+        return [dict(r) for r in rows]
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+    def refresh(self, workspace: Path) -> int:
+        """Force refresh: close cached connection so next access re-opens the DB.
+
+        Returns the number of rows in the database.
+        """
+        key = str(workspace)
+        if key in self._conn_map:
+            self._conn_map[key].close()
+            del self._conn_map[key]
+        conn = self._conn(workspace)
+        return self._row_count(conn)
 
     def init_from_csv(self, workspace: Path):
         """
@@ -76,79 +149,42 @@ class RunTagDB:
         csv_path = workspace / "run/run.csv"
         if not csv_path.exists():
             raise FileNotFoundError(f"CSV file not found: {csv_path}")
-
-        df = pl.read_csv(csv_path)
-        df = df.filter(pl.col("run").is_not_null())
-
-        # Replace "#N/A" and empty strings with null
-        df = df.with_columns([
-            pl.col("date").fill_null(""),
-            pl.col("start").fill_null(""),
-            pl.col("stop").fill_null(""),
-        ])
-        df = df.with_columns([
-            pl.col("date").replace("#N/A", None).replace("", None),
-            pl.col("start").replace("#N/A", None).replace("", None),
-            pl.col("stop").replace("#N/A", None).replace("", None),
-        ])
-
-        # Parse date and time to start and stop columns
-        df = df.with_columns([
-            pl.concat_str(["date", "start"], separator=" ")
-                .str.strptime(pl.Datetime, "%m/%d/%Y %H:%M", strict=False)
-                .alias("start"),
-            pl.concat_str(["date", "stop"], separator=" ")
-                .str.strptime(pl.Datetime, "%m/%d/%Y %H:%M", strict=False)
-                .alias("stop"),
-        ])
-        # Handle overnight runs (stop < start)
-        df = df.with_columns([
-            pl.when(pl.col("stop") < pl.col("start"))
-            .then(pl.col("stop") + pl.duration(days=1))
-            .otherwise(pl.col("stop"))
-            .alias("stop")
-        ])
-
-        df = df.with_columns([
-            (pl.col("stop") - pl.col("start")).alias("duration")
-        ])
-
-        # Select only the required columns
-        df = df.select(["run", "start", "stop", "duration", "experiment"])
-
-        # Store in db_map
-        path = str(workspace)
-        self._db_map[path] = RunDBInfo(
-            db_path=Path(path) / "run/run_tags.parquet",
-            df=df,
-            last_modified=None
-        )
-        self._save(workspace)
-
+        conn = self._conn(workspace)
+        conn.execute("DELETE FROM runs")
+        self._import_csv(conn, csv_path)
 
     def list_runs(self, workspace) -> List[int]:
         """Return list of all run numbers."""
-        df = self._load(workspace)
-        return df["run"].to_list()
+        conn = self._conn(workspace)
+        rows = conn.execute("SELECT run FROM runs ORDER BY run").fetchall()
+        return [r[0] for r in rows]
 
     def list_tag_groups(self, workspace: Path) -> List[str]:
         """Return list of all tag group names (column names except 'run', 'start', 'stop', 'duration')."""
-        df = self._load(workspace)
-        exclude_cols = {"run", "start", "stop", "duration"}
-        return [col for col in df.columns if col not in exclude_cols]
+        conn = self._conn(workspace)
+        return [c for c in self._columns(conn) if c not in _CORE_COLUMNS]
 
     def list_tags(self, workspace: Path, tag_group: str) -> List[str]:
         """Return list of unique tag values for a given tag group."""
-        df = self._load(workspace)
-        if tag_group not in df.columns:
+        conn = self._conn(workspace)
+        if tag_group not in self._columns(conn):
             return []
-        return df[tag_group].unique().drop_nulls().to_list()
+        rows = conn.execute(
+            f"SELECT DISTINCT [{tag_group}] FROM runs WHERE [{tag_group}] IS NOT NULL"
+        ).fetchall()
+        return [r[0] for r in rows]
 
     def list_all_tags(self, workspace: Path) -> Dict[str, List[str]]:
         """Return all tag groups with their unique values."""
-        df = self._load(workspace)
-        exclude_cols = {"run", "start", "stop", "duration"}
-        return {col: df[col].unique().drop_nulls().to_list() for col in df.columns if col not in exclude_cols}
+        conn = self._conn(workspace)
+        cols = [c for c in self._columns(conn) if c not in _CORE_COLUMNS]
+        result: Dict[str, List[str]] = {}
+        for col in cols:
+            rows = conn.execute(
+                f"SELECT DISTINCT [{col}] FROM runs WHERE [{col}] IS NOT NULL"
+            ).fetchall()
+            result[col] = [r[0] for r in rows]
+        return result
 
     def list_runs_by_tag(self, workspace: Path, tag: str) -> List[int]:
         """Return run numbers that have the specified tag.
@@ -161,11 +197,13 @@ class RunTagDB:
             raise ValueError(f"Invalid tag format: {tag}. Expected format: 'tag_group:tag_value'")
 
         tag_group, tag_value = tag.split(':', 1)
-        df = self._load(workspace)
-        if tag_group not in df.columns:
+        conn = self._conn(workspace)
+        if tag_group not in self._columns(conn):
             return []
-        filtered = df.filter(pl.col(tag_group) == tag_value)
-        return filtered["run"].to_list()
+        rows = conn.execute(
+            f"SELECT run FROM runs WHERE [{tag_group}] = ? ORDER BY run", (tag_value,)
+        ).fetchall()
+        return [r[0] for r in rows]
 
     def filter_runs(
         self,
@@ -185,52 +223,76 @@ class RunTagDB:
         Returns:
             List of run numbers matching all specified criteria.
         """
-        df = self._load(workspace)
+        conn = self._conn(workspace)
+        clauses: List[str] = []
+        params: List = []
 
         if runs is not None:
-            df = df.filter(pl.col("run").is_in(runs))
+            placeholders = ",".join("?" for _ in runs)
+            clauses.append(f"run IN ({placeholders})")
+            params.extend(runs)
 
         if tags:
+            columns = self._columns(conn)
             for tag in tags:
                 if ':' not in tag:
                     raise ValueError(f"Invalid tag format: {tag}. Expected format: 'tag_group:tag_value'")
                 tag_group, tag_value = tag.split(':', 1)
-                if tag_group in df.columns:
-                    df = df.filter(pl.col(tag_group) == tag_value)
+                if tag_group in columns:
+                    clauses.append(f"[{tag_group}] = ?")
+                    params.append(tag_value)
 
-        return df["run"].to_list()
+        sql = "SELECT run FROM runs"
+        if clauses:
+            sql += " WHERE " + " AND ".join(clauses)
+        sql += " ORDER BY run"
+        rows = conn.execute(sql, params).fetchall()
+        return [r[0] for r in rows]
 
     def get_run_info(self, workspace: Path, run: int) -> Optional[Dict]:
         """Get all information for a specific run."""
-        df = self._load(workspace)
-        filtered = df.filter(pl.col("run") == run)
-        if len(filtered) == 0:
+        conn = self._conn(workspace)
+        row = conn.execute("SELECT * FROM runs WHERE run = ?", (run,)).fetchone()
+        if row is None:
             return None
-        return filtered.to_dicts()[0]
+        return dict(row)
 
     def get_runs_info(self, workspace: Path, runs: Optional[List[int]] = None) -> List[Dict]:
         """Get information for multiple runs."""
-        df = self._load(workspace)
+        conn = self._conn(workspace)
         if runs is not None:
-            df = df.filter(pl.col("run").is_in(runs))
-        return df.to_dicts()
+            placeholders = ",".join("?" for _ in runs)
+            rows = conn.execute(
+                f"SELECT * FROM runs WHERE run IN ({placeholders}) ORDER BY run", runs
+            ).fetchall()
+        else:
+            rows = conn.execute("SELECT * FROM runs ORDER BY run").fetchall()
+        return self._rows_to_dicts(rows)
 
     def to_csv(self, workspace: Path, output_path: Optional[Path] = None) -> str:
         """Export database to CSV format. Returns CSV string if no path provided."""
-        df = self._load(workspace)
+        conn = self._conn(workspace)
+        columns = self._columns(conn)
+        rows = conn.execute("SELECT * FROM runs ORDER BY run").fetchall()
+
+        buf = StringIO()
+        writer = csv.writer(buf)
+        writer.writerow(columns)
+        for row in rows:
+            writer.writerow(list(row))
+
+        csv_text = buf.getvalue()
         if output_path:
-            df.write_csv(output_path)
+            output_path.write_text(csv_text)
             return str(output_path)
-        return df.write_csv()
+        return csv_text
 
     def add_tag_group(self, workspace: Path, name: str, default_value: str = ""):
         """Add a new tag group column."""
-        path = str(workspace)
-        df = self._load(workspace)
-        if name not in df.columns:
-            df = df.with_columns(pl.lit(default_value).alias(name))
-            self._db_map[path].df = df
-            self._save(workspace)
+        conn = self._conn(workspace)
+        if name not in self._columns(conn):
+            conn.execute(f"ALTER TABLE runs ADD COLUMN [{name}] TEXT NOT NULL DEFAULT '{default_value}'")
+            conn.commit()
 
     def set_run_tag(self, workspace: Path, run: int, tag: str):
         """Set a tag value for a specific run.
@@ -243,18 +305,10 @@ class RunTagDB:
         if ':' not in tag:
             raise ValueError(f"Invalid tag format: {tag}. Expected format: 'tag_group:tag_value'")
 
-        path = str(workspace)
         tag_group, tag_value = tag.split(':', 1)
-        df = self._load(workspace)
-        if tag_group not in df.columns:
+        conn = self._conn(workspace)
+        if tag_group not in self._columns(conn):
             self.add_tag_group(workspace, tag_group)
-            df = self._load(workspace)
 
-        df = df.with_columns(
-            pl.when(pl.col("run") == run)
-            .then(pl.lit(tag_value))
-            .otherwise(pl.col(tag_group))
-            .alias(tag_group)
-        )
-        self._db_map[path].df = df
-        self._save(workspace)
+        conn.execute(f"UPDATE runs SET [{tag_group}] = ? WHERE run = ?", (tag_value, run))
+        conn.commit()

@@ -554,8 +554,8 @@ async def list_tags(workspace: str):
 async def refresh_run_database(workspace: str):
 	"""Force refresh the run database from disk."""
 	try:
-		df = run_tag_db.refresh(Path(workspace))
-		return {"message": "Database refreshed", "rows": len(df)}
+		rows = run_tag_db.refresh(Path(workspace))
+		return {"message": "Database refreshed", "rows": rows}
 	except Exception as e:
 		raise HTTPException(status_code=500, detail=f"Failed to initialize run database: {str(e)}")
 

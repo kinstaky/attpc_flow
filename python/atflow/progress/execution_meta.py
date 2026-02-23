@@ -27,7 +27,7 @@ class ExecutionMetaManager:
     @staticmethod
     def _get_executions_db_path(workspace: str) -> Path:
         """Get the path to the executions database."""
-        db_path = Path(workspace) / "meta" / "executions.db"
+        db_path = Path(workspace) / "meta" / "executions" / "executions.db"
         db_path.parent.mkdir(parents=True, exist_ok=True)
         return db_path
 

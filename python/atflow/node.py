@@ -95,7 +95,7 @@ class Node(ABC):
             task_id: Task identifier
             meta_data: Dictionary of metadata to store
         """
-        meta_dir = Path(workspace) / "meta"
+        meta_dir = Path(workspace) / "meta" / "nodes"
         meta_dir.mkdir(parents=True, exist_ok=True)
 
         db_path = meta_dir / f"{self.name}.db"

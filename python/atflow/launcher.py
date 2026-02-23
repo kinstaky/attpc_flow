@@ -396,149 +396,169 @@ def process_workflow(workflow_file):
 
 def run_node(node_name, node_args, list_nodes=False):
 	"""Run a single node with provided arguments."""
-	# Handle list option
-	if list_nodes:
+	# Redirect logger output to a file instead of screen
+	root_logger = logging.getLogger()
+	original_handlers = root_logger.handlers.copy()
+
+	# Create file handler for error logs
+	log_file = f"logs/node_{node_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+	os.makedirs("logs", exist_ok=True)
+	file_handler = logging.FileHandler(log_file, mode='w')
+	file_handler.setFormatter(AlignedFormatter())
+
+	# Clear existing handlers and add only file handler
+	root_logger.handlers.clear()
+	root_logger.addHandler(file_handler)
+	root_logger.setLevel(logging.DEBUG)
+
+	try:
+		# Handle list option
+		if list_nodes:
+			try:
+				from .node_manager import NodeManager
+				manager = NodeManager()
+				all_nodes = manager.list_nodes()
+				# Exclude load_run and load_run_list
+				excluded_nodes = {'load_run', 'load_run_list'}
+				available_nodes = [node for node in all_nodes if node not in excluded_nodes]
+
+				print("Available nodes:")
+				for name in sorted(available_nodes):
+					print(f"  - {name}")
+			except Exception as e:
+				print(f"Error: Failed to list nodes: {e}")
+			return
+
+		# Check if node_name is provided
+		if not node_name:
+			print("Error: No node name provided. Use --list to see available nodes.")
+			print("Example: atflow node const_int --value 42")
+			sys.exit(1)
+
+		# Get node from registry
 		try:
 			from .node_manager import NodeManager
 			manager = NodeManager()
-			all_nodes = manager.list_nodes()
-			# Exclude load_run and load_run_list
-			excluded_nodes = {'load_run', 'load_run_list'}
-			available_nodes = [node for node in all_nodes if node not in excluded_nodes]
-
-			print("Available nodes:")
-			for name in sorted(available_nodes):
-				print(f"  - {name}")
+			node = manager.get_node(node_name)
+			if not node:
+				print(f"Error: Node '{node_name}' not found in registry")
+				print("Use --list to see available nodes.")
+				sys.exit(1)
 		except Exception as e:
-			print(f"Error: Failed to list nodes: {e}")
-		return
-
-	# Check if node_name is provided
-	if not node_name:
-		print("Error: No node name provided. Use --list to see available nodes.")
-		print("Example: atflow node const_int --value 42")
-		sys.exit(1)
-
-	# Get node from registry
-	try:
-		from .node_manager import NodeManager
-		manager = NodeManager()
-		node = manager.get_node(node_name)
-		if not node:
-			print(f"Error: Node '{node_name}' not found in registry")
-			print("Use --list to see available nodes.")
+			print(f"Error: Failed to get node '{node_name}': {e}")
 			sys.exit(1)
-	except Exception as e:
-		print(f"Error: Failed to get node '{node_name}': {e}")
-		sys.exit(1)
 
-	# Parse node-specific arguments using the node's parameter model
-	try:
-		if node.parameters_model:
-			# Create a temporary parser for node parameters
-			param_parser = argparse.ArgumentParser()
-			for field_name, field_info in node.parameters_model.model_fields.items():
-				if field_name == "task_id":
-					continue
-				elif field_name == "execution_id":
-					param_parser.add_argument("--execution_id", required=False, help="Execution ID")
-				else:
-					param_parser.add_argument(f"--{field_name}", required=field_info.default is None,
-									   help=f"Parameter {field_name}")
-
-			param_args = param_parser.parse_args(node_args)
-			params = param_args.__dict__
-		else:
-			params = {}
-
-	except Exception as e:
-		print(f"Error parsing node parameters: {e}")
-		sys.exit(1)
-
-	# Execute the node
-	workspace = params.get("workspace")
-	if workspace is None:
-		raise ValueError("workspace parameter is required.")
-
-	try:
-		logger.info(f"Running node '{node_name}' with parameters: {params}")
-		started_at = datetime.now().timestamp()
-
-		# Extract parameter values (excluding None values)
-		execution_params = {}
-		for key, value in params.items():
-			if value is not None:
-				execution_params[key] = value
-
-		if "execution_id" not in execution_params:
-			execution_params["execution_id"] = str(uuid.uuid4())
-
-		execution_id = execution_params["execution_id"]
-
-		# Create execution meta directory (no workflow.json for single node)
+		# Parse node-specific arguments using the node's parameter model
 		try:
-			ExecutionMetaManager.create_execution_meta(
-				workspace=workspace,
-				execution_id=execution_id,
-				workflow="node",  # No workflow for single node execution
-				run_mode="node",
-			)
-			logger.info(f"Created execution meta directory: {workspace}/meta/{execution_id}")
+			if node.parameters_model:
+				# Create a temporary parser for node parameters
+				param_parser = argparse.ArgumentParser()
+				for field_name, field_info in node.parameters_model.model_fields.items():
+					if field_name == "task_id":
+						continue
+					elif field_name == "execution_id":
+						param_parser.add_argument("--execution_id", required=False, help="Execution ID")
+					else:
+						param_parser.add_argument(f"--{field_name}", required=field_info.default is None,
+										   help=f"Parameter {field_name}")
+
+				param_args = param_parser.parse_args(node_args)
+				params = param_args.__dict__
+			else:
+				params = {}
+
 		except Exception as e:
-			logger.error(f"Failed to create execution log: {e}")
+			print(f"Error parsing node parameters: {e}")
+			sys.exit(1)
 
-		# Execute node
-		result = manager.execute_node(
-			name=node_name,
-			execution_id=execution_id,
-			task_id=-1,
-			environment={},
-			inputs={},
-			properties=execution_params
-		)
-		execution_status = "completed"
+		# Execute the node
+		workspace = params.get("workspace")
+		if workspace is None:
+			raise ValueError("workspace parameter is required.")
 
-		# Print results
-		print(f"\nNode '{node_name}' executed successfully!")
-		print(f"Parameters: {execution_params}")
-		print(f"Result: {result}")
+		try:
+			started_at = datetime.now().timestamp()
 
-	except Exception as e:
-		execution_status = "failed"
-		logger.error(f"Failed to execute node '{node_name}': {e}")
-		print(f"Error: Failed to execute node: {e}")
+			# Extract parameter values (excluding None values)
+			execution_params = {}
+			for key, value in params.items():
+				if value is not None:
+					execution_params[key] = value
 
-	# Write meta after execution finishes
-	completed_at = datetime.now().timestamp()
-	try:
-		# create new ExecutionStatus
-		execution_status_obj = ExecutionStatus(
-			execution_id=execution_id,
-			workflow_id=node_name,
-			status=execution_status,
-			run_mode="node",
-			started_at=started_at,
-			completed_at=completed_at,
-			total_tasks=0,
-			completed_tasks=0,
-		)
-		tasks_progress = {
-			"-1": TaskProgress(
-				task_id="-1",
-				task_name=node_name,
-				run=execution_params.get("run", None),
-				percentage=100,
-				status=execution_status,
+			if "execution_id" not in execution_params:
+				execution_params["execution_id"] = str(uuid.uuid4())
+
+			execution_id = execution_params["execution_id"]
+
+			print(f"\nLog file: {log_file}")
+
+			# Create execution meta directory (no workflow.json for single node)
+			try:
+				ExecutionMetaManager.create_execution_meta(
+					workspace=workspace,
+					execution_id=execution_id,
+					workflow="node",  # No workflow for single node execution
+					run_mode="node",
+				)
+				logger.info(f"Created execution meta directory: {workspace}/meta/{execution_id}")
+			except Exception as e:
+				logger.error(f"Failed to create execution meta: {e}")
+
+			# Execute node
+			result = manager.execute_node(
+				name=node_name,
+				execution_id=execution_id,
+				task_id=-1,
+				environment={},
+				inputs={},
+				properties=execution_params
 			)
-		}
-		ExecutionMetaManager.write_meta(
-			workspace=workspace,
-			execution_status=execution_status_obj,
-			tasks_progress=tasks_progress,
-		)
-		logger.info(f"Wrote meta for node execution {execution_id}")
-	except Exception as e:
-		logger.error(f"Failed to write meta: {e}")
+			execution_status = "completed"
+
+			# Print results
+			print(f"\nNode '{node_name}' executed successfully!")
+			print(f"Parameters: {execution_params}")
+			print(f"Result: {result}")
+
+		except Exception as e:
+			execution_status = "failed"
+			print(f"Error: Failed to execute node '{node_name}': {e}")
+
+		# Write meta after execution finishes
+		completed_at = datetime.now().timestamp()
+		try:
+			# create new ExecutionStatus
+			execution_status_obj = ExecutionStatus(
+				execution_id=execution_id,
+				workflow_id=node_name,
+				status=execution_status,
+				run_mode="node",
+				started_at=started_at,
+				completed_at=completed_at,
+				total_tasks=0,
+				completed_tasks=0,
+			)
+			tasks_progress = {
+				"-1": TaskProgress(
+					task_id="-1",
+					task_name=node_name,
+					run=execution_params.get("run", None),
+					percentage=100,
+					status=execution_status,
+				)
+			}
+			ExecutionMetaManager.write_meta(
+				workspace=workspace,
+				execution_status=execution_status_obj,
+				tasks_progress=tasks_progress,
+			)
+		except Exception as e:
+			logger.error(f"Failed to write meta: {e}")
+
+	finally:
+		# Close file handler and restore original logger handlers
+		file_handler.close()
+		root_logger.handlers = original_handlers
 
 
 def main():

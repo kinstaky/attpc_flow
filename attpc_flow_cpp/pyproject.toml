@@ -36,7 +36,9 @@ build-verbosity = 1
 [tool.uv]
 cache-keys = [
     { file = "pyproject.toml" },
-    { file = "**/CMakeLists.txt" },
+    { file = "CMakeLists.txt" },
+    { file = "src/**/CMakeLists.txt" },
+    { file = "extensions/**/CMakeLists.txt" },
     { file = "include/**/*.h"},
     { file = "external/**/*.hpp" },
     { file = "src/**/*.cpp" },

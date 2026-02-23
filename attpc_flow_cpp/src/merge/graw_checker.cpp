@@ -1,6 +1,7 @@
 #include "include/merge/graw_checker.h"
-#include "include/common/meta.h"
 #include "include/common/file_lock.h"
+
+#include <SQLiteCpp/SQLiteCpp.h>
 
 #include <algorithm>
 #include <iostream>
@@ -242,32 +243,58 @@ void GrawChecker::CheckEventId(
 
 
 void GrawChecker::Record() const {
-	// record result to meta file
-	std::filesystem::path meta_path(
-		workspace_dir_ / "meta" / "merge_check.csv"
+	// record result to summary database
+	std::filesystem::path summary_path(
+		workspace_dir_ / "summary" / "merge_check.db"
 	);
-	Meta meta(
-		meta_path,
-		[](const Row &row) {
-			int run = row.As<int>(0);
-			int cobo = row.As<int>(2);
-			int asad = row.As<int>(3);
-			int key = (run<<6) | (cobo<<2) | asad;
-			return key;
-		}
+	std::filesystem::create_directories(summary_path.parent_path());
+
+	SQLite::Database db(
+		summary_path.string(),
+		SQLite::OPEN_READWRITE | SQLite::OPEN_CREATE
 	);
-	meta.SetHeader("run,execution,cobo,asad,events,start,end,good,continuous,complete");
+	db.exec("PRAGMA journal_mode=WAL");
+	SQLite::Transaction transaction(db);
+	db.exec(
+		"CREATE TABLE IF NOT EXISTS summary ("
+		"run INTEGER NOT NULL,"
+		"cobo INTEGER NOT NULL,"
+		"asad INTEGER NOT NULL,"
+		"events INTEGER NOT NULL,"
+		"start INTEGER NOT NULL,"
+		"end INTEGER NOT NULL,"
+		"good INTEGER NOT NULL,"
+		"continuous INTEGER NOT NULL,"
+		"complete INTEGER NOT NULL,"
+		"PRIMARY KEY (run, cobo, asad)"
+		")"
+	);
+
+	SQLite::Statement insert(
+		db,
+		"INSERT OR REPLACE INTO summary "
+		"(run, cobo, asad, events, start, end, good, continuous, complete) "
+		"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+	);
+
 	for (int idx = 0; idx < 42; ++idx) {
 		int cobo = idx / 4;
 		int asad = idx % 4;
-		meta.AddEntry()
-			<< run_ << execution_id_ << cobo << asad
-			<< event_counts_[idx] << start_event_[idx] << end_event_[idx]
-			<< (good_[idx] ? "true" : "false")
-			<< (continuous_[idx] ? "true" : "false")
-			<< (complete_[idx] ? "true" : "false");
+		insert.bind(1, run_);
+		insert.bind(2, cobo);
+		insert.bind(3, asad);
+		insert.bind(4, event_counts_[idx]);
+		insert.bind(5, start_event_[idx]);
+		insert.bind(6, end_event_[idx]);
+		insert.bind(7, good_[idx] ? 1 : 0);
+		insert.bind(8, continuous_[idx] ? 1 : 0);
+		insert.bind(9, complete_[idx] ? 1 : 0);
+		insert.exec();
+		insert.reset();
+		insert.clearBindings();
 	}
-	meta.Write();
+
+	transaction.commit();
 
 	// Write normal log
 	if (!log_stream_.str().empty()) {

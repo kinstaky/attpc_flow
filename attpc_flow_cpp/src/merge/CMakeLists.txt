@@ -3,7 +3,7 @@ target_include_directories(graw PUBLIC ${PROJECT_SOURCE_DIR})
 set_target_properties(graw PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 add_library(graw_checker graw_checker.cpp)
-target_link_libraries(graw_checker PUBLIC graw)
+target_link_libraries(graw_checker PUBLIC graw SQLiteCpp)
 # Conditionally link ZeroMQ only if enabled
 if(ATTPC_FLOW_USE_ZMQ)
 	target_link_libraries(graw_checker PUBLIC ZeroMQ::ZeroMQ)

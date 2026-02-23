@@ -82,6 +82,17 @@ find_package(Python 3.9
 # Import nanobind through CMake's find_package mechanism
 find_package(nanobind CONFIG REQUIRED)
 
+include(FetchContent)
+FetchContent_Declare(
+	SQLiteCpp
+	GIT_REPOSITORY https://github.com/SRombauts/SQLiteCpp.git
+	GIT_TAG 3.3.1
+)
+set(SQLITECPP_RUN_CPPCHECK OFF CACHE BOOL "" FORCE)
+set(SQLITECPP_RUN_CPPLINT OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(SQLiteCpp)
+find_package(SQLite3 REQUIRED)
+
 # Option to enable ZeroMQ support (default ON for extensions.)
 set(ATTPC_FLOW_USE_ZMQ ON CACHE BOOL "Enable ZeroMQ support for progress reporting")
 # Only set default if not already defined (e.g., by parent CMakeLists.txt)

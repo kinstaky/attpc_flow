@@ -7,6 +7,7 @@
 - [x] unify workflow graph edit command: pop_node, push_node, insert_node, delete_node, ..link, move node,
 - [x] change to unsave when edit node property, worksapce, core, run
 - [x] history execution and status
+- [ ] versbose output for workflow and node command
 
 ### tabs
 - [x] welcome page for no tabs
@@ -33,12 +34,12 @@
 - [x] execution workspace record
 - [x] memory of execution log and execution status
 - [x] memory of last opened workflow
-- [ ] sqlite node meta
+- [x] sqlite node meta
 
 ## run tag
 - [x] write new run tag
 - [x] write tag after check_graw_event_id
-- [ ] use sqlite instead of parquet
+- [x] use sqlite instead of parquet
 
 ## other
 - [ ] better dialog in TopAppBar and FloatingButtons

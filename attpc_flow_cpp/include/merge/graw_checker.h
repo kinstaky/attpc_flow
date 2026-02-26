@@ -89,18 +89,18 @@ private:
 	std::unique_ptr<ProgressReporter> progress_reporter_;
 	// total size of graw files
 	size_t total_size_;
-	// event counts
-	int event_counts_[42];
-	// first event's id
-	int start_event_[42];
-	// last event's id
-	int end_event_[42];
-	// file not broken
-	bool good_[42];
-	// event id is continuous
-	bool continuous_[42];
-	// file is complete
-	bool complete_[42];
+	// event counts (index 42 is summary)
+	int event_counts_[43];
+	// first event's id (index 42 is summary)
+	int start_event_[43];
+	// last event's id (index 42 is summary)
+	int end_event_[43];
+	// file not broken (index 42 is summary)
+	bool good_[43];
+	// event id is continuous (index 42 is summary)
+	bool continuous_[43];
+	// file is complete (index 42 is summary)
+	bool complete_[43];
 	// log stream for normal logging
 	std::stringstream log_stream_;
 	// bad event set for unique bad event IDs
@@ -113,8 +113,9 @@ private:
 	CheckAsadResult CheckAsad(int cobo, int asad);
 
 	/// @brief Check event id is continuous
-	/// @param[in] ids event ids
-	void CheckEventId(int *id_list, CheckGrawResult &result, bool max = true);
+	/// @param[in] id_list event id list
+	/// @param[in] result check graw event result
+	void CheckEventId(int *id_list, CheckGrawResult &result);
 
 	/// @brief Record results
 	void Record() const;

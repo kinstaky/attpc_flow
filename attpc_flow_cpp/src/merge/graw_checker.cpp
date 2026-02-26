@@ -48,7 +48,7 @@ GrawChecker::GrawChecker(
 			total_size_ += file.file_size();
 		}
 	}
-	for (int idx = 0; idx < 42; ++idx) {
+	for (int idx = 0; idx < 43; ++idx) {
 		event_counts_[idx] = 0;
 		start_event_[idx] = -1;
 		end_event_[idx] = -1;
@@ -97,12 +97,39 @@ CheckGrawResult GrawChecker::Check() {
 		progress_reporter_->ReportFinish();
 	}
 
-	CheckEventId(start_event_, result, false);
-	CheckEventId(end_event_, result, true);
-	// record
-	Record();
+	int min_event = -1;
+	int max_event = -1;
+	for (int idx = 0; idx < 42; ++idx) {
+		if (start_event_[idx] < 0 || end_event_[idx] < 0) {
+			continue;
+		}
+		if (min_event < 0 || start_event_[idx] < min_event) {
+			min_event = start_event_[idx];
+		}
+		if (max_event < 0 || end_event_[idx] > max_event) {
+			max_event = end_event_[idx];
+		}
+	}
+	start_event_[42] = min_event;
+	end_event_[42] = max_event;
+
+	CheckEventId(start_event_, result);
+	CheckEventId(end_event_, result);
+	if (min_event >= 0 && max_event >= 0 && max_event >= min_event) {
+		event_counts_[42] = max_event - min_event + 1;
+	}
+	good_[42] = true;
+	continuous_[42] = true;
+	complete_[42] = true;
+	for (int idx = 0; idx < 42; ++idx) {
+		good_[42] = good_[42] && good_[idx];
+		continuous_[42] = continuous_[42] && continuous_[idx];
+		complete_[42] = complete_[42] && complete_[idx];
+	}
 	// record result to log stream
 	if (result.pass) log_stream_ << "Pass\n";
+	// record
+	Record();
 	return result;
 }
 
@@ -189,7 +216,7 @@ CheckAsadResult GrawChecker::CheckAsad(int cobo, int asad) {
 			// record first event
 			if (first) {
 				first = false;
-				log_stream_ << "File first," << idx << "," <<  event_id << "\n";
+				// log_stream_ << "File first," << idx << "," <<  event_id << "\n";
 			}
 		}
 		// check size
@@ -202,20 +229,11 @@ CheckAsadResult GrawChecker::CheckAsad(int cobo, int asad) {
 
 void GrawChecker::CheckEventId(
 	int *id_list,
-	CheckGrawResult &result,
-	bool max
+	CheckGrawResult &result
 ) {
-	// get max events
-	int ref_event = id_list[0];
-	for (int idx = 0; idx < 42; ++idx) {
-		if (result.asad_results[idx].type != AsadResultType::Pass) {
-			continue;
-		}
-		if (max && id_list[idx] > ref_event) {
-			ref_event = id_list[idx];
-		} else if (!max && id_list[idx] < ref_event) {
-			ref_event = id_list[idx];
-		}
+	int ref_event = id_list[42];
+	if (ref_event < 0) {
+		return;
 	}
 	// check if event count less than max_events
 	for (int idx = 0; idx < 42; ++idx) {
@@ -228,7 +246,7 @@ void GrawChecker::CheckEventId(
 			result.which.push_back(idx);
 			result.pass = false;
 			log_stream_ << "Incomplete," << idx << "\n";
-			if (max) {
+			if (id_list[idx] < ref_event) {
 				for (int id = id_list[idx]+1; id <= ref_event; ++id) {
 					bad_events_.insert(id);
 				}
@@ -277,9 +295,9 @@ void GrawChecker::Record() const {
 		"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
 	);
 
-	for (int idx = 0; idx < 42; ++idx) {
-		int cobo = idx / 4;
-		int asad = idx % 4;
+	for (int idx = 0; idx < 43; ++idx) {
+		int cobo = idx != 42 ? idx / 4 : -1;
+		int asad = idx != 42 ? idx % 4 : -1;
 		insert.bind(1, run_);
 		insert.bind(2, cobo);
 		insert.bind(3, asad);
@@ -301,7 +319,8 @@ void GrawChecker::Record() const {
 		std::filesystem::path log_path =
 			workspace_dir_
 			/ "log"
-			/ ("graw_event_id_" + std::to_string(run_) + ".log");
+			/ "check_graw_event_id"
+			/ (std::to_string(run_) + ".log");
 		std::filesystem::create_directories(log_path.parent_path());
 		std::ofstream log_file(log_path);
 		if (log_file.is_open()) {
@@ -315,15 +334,16 @@ void GrawChecker::Record() const {
 		std::filesystem::path bad_event_path =
 			workspace_dir_
 			/ "run"
-			/ ("bad_event_" + std::to_string(run_) + ".txt");
+			/ "bad_events"
+			/ (std::to_string(run_) + ".txt");
 		std::filesystem::create_directories(bad_event_path.parent_path());
 
-		// Create lock file path
-		std::filesystem::path lock_path =
-			bad_event_path.parent_path()
-			/ (bad_event_path.stem().string() + ".lock");
-		// Use FileLock on lock file for thread-safe writing
-		FileLock lock(lock_path.c_str());
+		// // Create lock file path
+		// std::filesystem::path lock_path =
+		// 	bad_event_path.parent_path()
+		// 	/ (bad_event_path.stem().string() + ".lock");
+		// // Use FileLock on lock file for thread-safe writing
+		// FileLock lock(lock_path.c_str());
 		// Open data file for writing (overwrite mode)
 		std::ofstream bad_event_file(bad_event_path);
 		if (bad_event_file.is_open()) {

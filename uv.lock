@@ -7,6 +7,7 @@ members = [
     "attpc-flow",
     "attpc-flow-cpp",
     "attpc-flow-frontend",
+    "attpc-merger-wrapper",
 ]
 
 [[package]]
@@ -58,10 +59,16 @@ dependencies = [
     { name = "uvicorn", extra = ["standard"] },
 ]
 
+[package.optional-dependencies]
+merger = [
+    { name = "attpc-merger-wrapper" },
+]
+
 [package.metadata]
 requires-dist = [
     { name = "attpc-flow-cpp", editable = "attpc_flow_cpp" },
     { name = "attpc-flow-frontend", editable = "frontend" },
+    { name = "attpc-merger-wrapper", marker = "extra == 'merger'", editable = "packages/attpc_merger_wrapper" },
     { name = "colorlog", specifier = ">=6.0.0" },
     { name = "fastapi", specifier = ">=0.129.0" },
     { name = "httpx", specifier = ">=0.28.1" },
@@ -72,6 +79,7 @@ requires-dist = [
     { name = "tqdm", specifier = ">=4.67.3" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.40.0" },
 ]
+provides-extras = ["merger"]
 
 [[package]]
 name = "attpc-flow-cpp"
@@ -82,6 +90,11 @@ source = { editable = "attpc_flow_cpp" }
 name = "attpc-flow-frontend"
 version = "0.1.0"
 source = { editable = "frontend" }
+
+[[package]]
+name = "attpc-merger-wrapper"
+version = "0.1.0"
+source = { editable = "packages/attpc_merger_wrapper" }
 
 [[package]]
 name = "certifi"

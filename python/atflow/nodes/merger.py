@@ -67,7 +67,9 @@ class CheckGrawEventIdNode(Node):
             run=run,
         )
         db = RunTagDB()
-        db.add_tag_group(workspace=workspace, name="evtid", default_value="uncheck")
-        db.set_run_tag(workspace=workspace, run=run, tag=f"evtid:{result}")
+        db.set_run_tag(workspace=workspace, run=run, tag=f"evtid:{result}", default_value="unchecked")
 
-        return [run] if result == "pass" else [None]
+        if result == "pass" or result == "missing" or result == "incomplete":
+            return [run]
+        else:
+            return [None]

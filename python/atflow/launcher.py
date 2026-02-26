@@ -417,14 +417,23 @@ def run_node(node_name, node_args, list_nodes=False):
 			try:
 				from .node_manager import NodeManager
 				manager = NodeManager()
+				manager.discover_nodes()
 				all_nodes = manager.list_nodes()
 				# Exclude load_run and load_run_list
 				excluded_nodes = {'load_run', 'load_run_list'}
 				available_nodes = [node for node in all_nodes if node not in excluded_nodes]
 
-				print("Available nodes:")
-				for name in sorted(available_nodes):
-					print(f"  - {name}")
+				nodes_by_category = {}
+				for name in available_nodes:
+					node = manager.get_node(name)
+					category = node.category if node else "uncategorized"
+					nodes_by_category.setdefault(category, []).append(name)
+
+				print("Available nodes by category:")
+				for category in sorted(nodes_by_category):
+					print(f"  {category}:")
+					for name in sorted(nodes_by_category[category]):
+						print(f"    - {name}")
 			except Exception as e:
 				print(f"Error: Failed to list nodes: {e}")
 			return
@@ -439,6 +448,7 @@ def run_node(node_name, node_args, list_nodes=False):
 		try:
 			from .node_manager import NodeManager
 			manager = NodeManager()
+			manager.discover_nodes()
 			node = manager.get_node(node_name)
 			if not node:
 				print(f"Error: Node '{node_name}' not found in registry")

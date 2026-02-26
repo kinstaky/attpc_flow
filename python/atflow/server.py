@@ -201,6 +201,7 @@ def organize_nodes_by_category() -> Dict[str, List[str]]:
 	"""Organize registered nodes by their category."""
 	categories = {}
 	manager = NodeManager()
+	manager.discover_nodes()
 
 	for name in manager.list_nodes():
 		node = manager.get_node(name)
@@ -256,6 +257,7 @@ async def get_node(node_name: str):
 	"""Get specific node information."""
 	try:
 		manager = NodeManager()
+		manager.discover_nodes()
 		node = manager.get_node(node_name)
 		if not node:
 			raise HTTPException(status_code=404, detail=f"Node '{node_name}' not found")
@@ -277,6 +279,7 @@ async def get_node(node_name: str):
 async def get_dev_node(node_name: str):
 	try:
 		manager = NodeManager()
+		manager.discover_nodes()
 		node = manager.get_node(node_name)
 		if not node:
 			raise HTTPException(status_code=404, detail=f"Node '{node_name}' not found")
@@ -586,6 +589,7 @@ async def health_check():
 	"""Health check endpoint."""
 	from .progress.progress_store import workflow_queue
 	manager = NodeManager()
+	manager.discover_nodes()
 	return {
 		"status": "healthy",
 		"nodes_registered": len(manager.list_nodes()),

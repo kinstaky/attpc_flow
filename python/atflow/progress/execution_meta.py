@@ -336,9 +336,7 @@ class ExecutionMetaManager:
             cursor = conn.execute("SELECT * FROM tasks ORDER BY task_id")
             tasks = {}
             for row in cursor.fetchall():
-                print("row:", row)
                 task = dict(row)
-                print("task:", task)
                 tasks[task["task_id"]] = task
             return tasks
         finally:

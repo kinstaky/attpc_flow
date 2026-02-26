@@ -8,6 +8,10 @@
 - [x] change to unsave when edit node property, worksapce, core, run
 - [x] history execution and status
 - [ ] versbose output for workflow and node command
+- [ ] discarded/cached task
+- [ ] fail task
+- [ ] memory of executing
+- [ ] queued execution
 
 ### tabs
 - [x] welcome page for no tabs
@@ -16,8 +20,8 @@
 - [ ] implement saveas tab
 
 ### nodes
-- [ ] attpc_merger rust->python
-- [ ] check merged
+- [x] attpc_merger rust->python
+- [x] check merged
 - [x] node category
 - [x] record bad events
 

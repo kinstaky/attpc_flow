@@ -257,6 +257,25 @@ class RunTagDB:
             return None
         return dict(row)
 
+    def get_run_tag(self, workspace: Path, run: int, group: str) -> Optional[str]:
+        """Get a single tag value for a run.
+
+        Returns:
+            Tag value as string when present, otherwise None.
+        """
+        conn = self._conn(workspace)
+        columns = self._columns(conn)
+        if group not in columns:
+            return None
+
+        row = conn.execute(
+            f"SELECT [{group}] FROM runs WHERE run = ?",
+            (run,),
+        ).fetchone()
+        if row is not None and row[0] is not None:
+            return str(row[0])
+        return None
+
     def get_runs_info(self, workspace: Path, runs: Optional[List[int]] = None) -> List[Dict]:
         """Get information for multiple runs."""
         conn = self._conn(workspace)
@@ -294,13 +313,21 @@ class RunTagDB:
             conn.execute(f"ALTER TABLE runs ADD COLUMN [{name}] TEXT NOT NULL DEFAULT '{default_value}'")
             conn.commit()
 
-    def set_run_tag(self, workspace: Path, run: int, tag: str):
+    def set_run_tag(
+        self,
+        workspace: Path,
+        run: int,
+        tag: str,
+        default_value: Optional[str] = None,
+    ):
         """Set a tag value for a specific run.
 
         Args:
             workspace: Workspace path
             run: Run number
             tag: Tag in format 'tag_group:tag_value'
+            default_value: Default value used when creating a missing tag group.
+                If None and tag group does not exist, raises ValueError.
         """
         if ':' not in tag:
             raise ValueError(f"Invalid tag format: {tag}. Expected format: 'tag_group:tag_value'")
@@ -308,7 +335,12 @@ class RunTagDB:
         tag_group, tag_value = tag.split(':', 1)
         conn = self._conn(workspace)
         if tag_group not in self._columns(conn):
-            self.add_tag_group(workspace, tag_group)
+            if default_value is None:
+                raise ValueError(
+                    f"Tag group does not exist: {tag_group}. "
+                    "Provide default_value to create it."
+                )
+            self.add_tag_group(workspace, tag_group, default_value=default_value)
 
         conn.execute(f"UPDATE runs SET [{tag_group}] = ? WHERE run = ?", (tag_value, run))
         conn.commit()

@@ -24,6 +24,9 @@ dependencies = [
     "attpc-flow-frontend",
 ]
 
+[project.optional-dependencies]
+merger = ["attpc-merger-wrapper"]
+
 [project.urls]
 Homepage = "https://github.com/kinstaky/attpc_flow"
 
@@ -43,9 +46,11 @@ module-root = "python"
 attpc-flow = { workspace = true }
 attpc-flow-cpp = { workspace = true }
 attpc-flow-frontend = { workspace = true }
+attpc-merger-wrapper = { workspace = true }
 
 [tool.uv.workspace]
 members = [
     "attpc_flow_cpp",
-    "frontend"
+    "frontend",
+    "packages/attpc_merger_wrapper",
 ]

@@ -26,6 +26,8 @@ def _init_worker():
 	# Import node modules to trigger @auto_register_node decorators
 	import importlib
 	importlib.import_module('atflow.nodes')
+	manager = NodeManager()
+	manager.discover_nodes()
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -140,7 +142,7 @@ class Processor:
 	def _init_tasks(self, workflow: Workflow):
 		# print(json.dumps(workflow.model_dump(), indent=2))
 		adapted = self._adapt_workflow(workflow)
-		# print(json.dumps(adapted, indent=2))
+		print(json.dumps(adapted, indent=2))
 
 		load_run_nodes = []
 		single_mode_nodes = []
@@ -221,11 +223,16 @@ class Processor:
 				task_id_map[(run, node["id"])] = task_id
 				task_id += 1
 		# print(json.dumps(self.tasks, indent=2))
-		# solve link task id
 		for task in self.tasks:
+			# solve link task id
 			for port in task["ports"]:
 				port["link_task"] = task_id_map[port["link_task"]]
-		# print(json.dumps(self.tasks, indent=2))
+			# solve waiting task id
+			solve_waiting = []
+			for w in task["waiting"]:
+				solve_waiting.append(task_id_map[w])
+			task["waiting"] = solve_waiting
+		print(json.dumps(self.tasks, indent=2))
 
 	def _parse_property_value(self, prop: Dict[str, Any]):
 		"""Parse property value based on its type."""

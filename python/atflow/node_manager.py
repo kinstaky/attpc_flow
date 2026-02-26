@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Type
 from .node import Node
 
 # Global manager instance for auto-registration
-_global_manager: Optional['NodeManager'] = None
+_global_manager: Optional["NodeManager"] = None
 _manager_lock = threading.Lock()
 
 

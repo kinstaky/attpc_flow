@@ -1,0 +1,30 @@
+[project]
+name = "attpc-merger-wrapper"
+version = "0.1.0"
+description = "ATTPC merger python wrapper for ATTPC flow"
+readme = "README.md"
+authors = [
+    { name = "kinstaky", email = "kinstaky@163.com" }
+]
+requires-python = ">=3.12"
+dependencies = []
+
+[project.entry-points."attpc_nodes"]
+attpc_merger = "attpc_merger_wrapper.node:AttpcMergerNode"
+
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[tool.maturin]
+bindings = "pyo3"
+python-source = "src"
+module-name = "attpc_merger_wrapper._lib"
+
+[tool.uv]
+cache-keys = [
+    { file = "project.toml" },
+    { file = "Cargo.toml" },
+    { file = "src/**/*.py" },
+    { file = "rust/**/*.rs" },
+]

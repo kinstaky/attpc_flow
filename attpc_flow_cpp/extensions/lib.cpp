@@ -38,7 +38,7 @@ std::string check_graw_event_id(
 		std::move(progress_reporter)
 	);
 	atflow::CheckGrawResult result = checker.Check();
-	std::string summary = result.pass ? "pass" : "";
+	std::string summary = result.pass ? "pass" : "unknown";
 	if (!result.pass) {
 		for (int idx : result.which) {
 			const auto& asad_result = result.asad_results[idx];
@@ -54,7 +54,7 @@ std::string check_graw_event_id(
 				summary = "incomplete";
 			} else if (
 				asad_result.type == atflow::AsadResultType::Missing
-				&& summary == ""
+				&& summary == "unknown"
 			) {
 				summary = "missing";
 			}

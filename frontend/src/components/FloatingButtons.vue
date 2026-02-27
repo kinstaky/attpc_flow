@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, nextTick, watch, inject, defineAsyncComponent } from 'vue'
+import { ref, computed, nextTick, watch, inject, defineAsyncComponent, onMounted } from 'vue'
 import { type WorkflowRun } from '../models/workflow'
 import {
   activeTabName,
@@ -16,8 +16,9 @@ import {
 import {
   listWorkflows,
   executeWorkflow,
+  listExecutions,
 } from '../api/workflow'
-import { useProgressWebSocket } from '../composables/useWebSocket'
+import { type ExecutionStatus, useProgressWebSocket } from '../composables/useWebSocket'
 
 // Lazy load RunSelector only when needed
 const RunSelector = defineAsyncComponent(() => import('./RunSelector.vue'))
@@ -67,6 +68,27 @@ const duplicateWorkflow = () => {
   // TODO
   console.log("TODO: duplicate workflow")
   showWorkflowMenu.value = false
+}
+
+const initializeExecutionState = async () => {
+  try {
+    const executions = await listExecutions()
+    const hasRunningExecution = executions.some((execution: { status?: string }) =>
+      execution.status === 'running' || execution.status === 'waiting'
+    )
+
+    if (!hasRunningExecution) {
+      isExecuting.value = false
+      return
+    }
+
+    isExecuting.value = true
+    connectExecutionWebSocket('initialExecutionSync')
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : 'Failed to fetch executions'
+    showError(errorMessage)
+    isExecuting.value = false
+  }
 }
 
 const saveAsWorkflow = () => {
@@ -202,6 +224,39 @@ const cancelEditWorkers = () => {
   isEditingWorkers.value = false
 }
 
+const connectExecutionWebSocket = (connectionId: string, executionId?: string) => {
+  connect(connectionId, {
+    onExecutionProgress: (executions: ExecutionStatus[]) => {
+      if (executionId) {
+        const exec = executions.find(execution => execution.execution_id === executionId)
+        if (exec && (exec.status === 'completed' || exec.status === 'failed')) {
+          console.log('Execution already finished (detected from initial state)')
+          isExecuting.value = false
+        }
+        return
+      }
+
+      const stillRunning = executions.some(execution =>
+        execution.status === 'running' || execution.status === 'waiting'
+      )
+      if (!stillRunning) {
+        isExecuting.value = false
+      }
+    },
+    onExecutionComplete: (completedExecutionId: string) => {
+      if (executionId && completedExecutionId !== executionId) {
+        return
+      }
+      console.log('Execution completed')
+      isExecuting.value = false
+    },
+    onError: (error: Event) => {
+      console.error('WebSocket error:', error)
+      isExecuting.value = false
+    }
+  })
+}
+
 const runWorkflow = async () => {
   try {
     // Step 1: Save the workflow (saveWorkflow handles all validation)
@@ -228,30 +283,7 @@ const runWorkflow = async () => {
     console.log('Workflow execution started:', executionStatus)
 
     // Connect to WebSocket for completion notification
-    connect("startBtn", {
-      onExecutionProgress: (executions) => {
-        // Handle case where execution already completed before WebSocket connected
-        const exec = executions.find(e => e.execution_id === executionStatus.execution_id)
-        if (exec && (exec.status === 'completed' || exec.status === 'failed')) {
-          console.log('Execution already finished (detected from initial state)')
-          isExecuting.value = false
-        }
-      },
-      onExecutionComplete: (execution_id: string) => {
-        if (execution_id != executionStatus.execution_id) {
-          return
-        }
-        // Handle completion
-        console.log('Execution completed')
-        isExecuting.value = false
-      },
-      onError: (error: Event) => {
-        console.error('WebSocket error:', error)
-        // Reset executing state on WebSocket error
-        isExecuting.value = false
-      }
-    })
-
+    connectExecutionWebSocket('startBtn', executionStatus.execution_id)
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Failed to save or execute workflow'
     showError(errorMessage)
@@ -289,6 +321,10 @@ watch(activeWorkflow, (newWorkflow) => {
     runInfo.value = newWorkflow.run
   }
 }, { immediate: true })
+
+onMounted(() => {
+  initializeExecutionState()
+})
 
 </script>
 
@@ -442,7 +478,7 @@ watch(activeWorkflow, (newWorkflow) => {
         :disabled="isExecuting"
       >
         <v-icon start v-show="!isExecuting">{{ 'mdi-play' }}</v-icon>
-        {{ isExecuting ? 'Processing...' : 'Start' }}
+        {{ isExecuting ? 'Executing...' : 'Execute' }}
       </v-btn>
       <v-progress-circular color="primary" indeterminate class="mt-2" v-show="isExecuting"></v-progress-circular>
     </div>

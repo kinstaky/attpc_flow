@@ -250,6 +250,10 @@ fn merge_attpc(
             return Ok(String::from("failed"));
         }
     } else {
+        let mut reporter = progress_reporter::create_progress_reporter(
+            task_id, execution_id
+        );
+        reporter.report_cached();
         spdlog::info!("Skipping merge operation.");
     }
 

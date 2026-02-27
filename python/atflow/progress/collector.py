@@ -124,6 +124,18 @@ def zmq_collector_store():
                         failed=True
                     )
 
+                elif command == "discard":
+                    # Handle discard message
+                    logging.debug(f"Received discard: Execution {execution_id}, Task {task_id}")
+                    # Set task discarded
+                    progress_store.discard_task(execution_id=execution_id, task_id=task_id)
+
+                elif command == "cached":
+                    # Handle cacahed message
+                    logging.debug(f"Received cached: Execution {execution_id}, Task {task_id}")
+                    # Set task discarded
+                    progress_store.cached_task(execution_id=execution_id, task_id=task_id)
+
                 else:
                     # Handle progress message
                     try:

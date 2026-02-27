@@ -16,7 +16,7 @@ export interface TaskProgress {
   run: string | null
   percentage: number
   timestamp: number | null
-  status: "running" | "failed" | "completed"
+  status: "running" | "failed" | "completed" | "discarded" | "cached"
 }
 
 export interface WebSocketProgressCallbacks {

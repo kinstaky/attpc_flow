@@ -18,6 +18,8 @@ const STATUS_CONFIG = {
   running: { color: 'info', icon: 'mdi-play-circle' },
   failed: { color: 'error', icon: 'mdi-close-circle' },
   waiting: { color: 'warning', icon: 'mdi-clock' },
+  discarded: { color: 'grey', icon: 'mdi-cancel' },
+  cached: { color: 'teal-lighten-3', icon: 'mdi-cached' },
   default: { color: 'grey', icon: 'mdi-help-circle' }
 } as const
 
@@ -32,7 +34,10 @@ const formatTime = (timestamp: number | null) => {
 
 const formatPercentage = (percentage: number) => `${Math.round(percentage)}%`
 
-const getTaskProgressColor = (percentage: number) => {
+const getTaskProgressColor = (status: string, percentage: number) => {
+  if (status === 'discarded') return 'grey'
+  if (status === 'cached') return 'teal-lighten-3'
+  if (status === 'failed') return 'error'
   const thresholds = [
     { min: 100, color: 'success' },
     { min: 0, color: 'info' },
@@ -147,7 +152,7 @@ const getFinishedTime = (): number | null => {
           </v-list-item-title>
           <v-progress-linear
             :model-value="progress.percentage"
-            :color="getTaskProgressColor(progress.percentage)"
+            :color="getTaskProgressColor(progress.status, progress.percentage)"
             height="3"
             class="mt-1"
           />

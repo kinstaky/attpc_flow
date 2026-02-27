@@ -2,10 +2,11 @@ use libattpc_merger::worker_status::WorkerStatus;
 use std::io::{self, Write};
 use std::sync::mpsc::Receiver;
 
-trait ProgressReporter {
+pub trait ProgressReporter {
     fn report_start(&mut self);
     fn report_progress(&mut self, percentage: i32);
     fn report_finish(&mut self);
+    fn report_cached(&mut self);
 }
 
 struct ZmqProgressReporter {
@@ -70,6 +71,11 @@ impl ProgressReporter for ZmqProgressReporter {
         let message = format!("task,finish,{},{}", self.execution_id, self.task_id);
         self.send(&message);
     }
+
+    fn report_cached(&mut self) {
+        let message = format!("task,cached,{},{}", self.execution_id, self.task_id);
+        self.send(&message);
+    }
 }
 
 struct TextProgressReporter {
@@ -107,6 +113,10 @@ impl ProgressReporter for TextProgressReporter {
     fn report_finish(&mut self) {
         println!("\r{}: Task completed", self.label());
     }
+
+    fn report_cached(&mut self) {
+        println!("\r{}: Task cached", self.label());
+    }
 }
 
 pub fn spawn_progress_reporter(
@@ -115,11 +125,7 @@ pub fn spawn_progress_reporter(
     rx: Receiver<WorkerStatus>,
 ) -> std::thread::JoinHandle<()> {
     std::thread::spawn(move || {
-        let mut reporter: Box<dyn ProgressReporter + Send> = if task_id >= 0 {
-            Box::new(ZmqProgressReporter::new(execution_id, task_id))
-        } else {
-            Box::new(TextProgressReporter::new("Progress"))
-        };
+        let mut reporter = create_progress_reporter(task_id, execution_id);
 
         reporter.report_start();
 
@@ -130,4 +136,15 @@ pub fn spawn_progress_reporter(
 
         reporter.report_finish();
     })
+}
+
+pub fn create_progress_reporter(
+    task_id: i32,
+    execution_id: String,
+) -> Box<dyn ProgressReporter + Send> {
+    if task_id >= 0 {
+        Box::new(ZmqProgressReporter::new(execution_id, task_id))
+    } else {
+        Box::new(TextProgressReporter::new("Merge ATTPC Wrapper"))
+    }
 }

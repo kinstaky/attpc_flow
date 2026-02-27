@@ -1,4 +1,7 @@
 # Todo
+## Analysis
+- [ ] wrap spyral point cloud phase
+
 ## UI
 - [x] beautify task progress
 - [x] delete node, delete link
@@ -7,10 +10,10 @@
 - [x] unify workflow graph edit command: pop_node, push_node, insert_node, delete_node, ..link, move node,
 - [x] change to unsave when edit node property, worksapce, core, run
 - [x] history execution and status
-- [ ] versbose output for workflow and node command
-- [ ] discarded/cached task
+- [ ] versbose options for workflow and node command
+- [x] discarded/cached task
 - [ ] fail task
-- [ ] memory of executing
+- [x] memory of executing
 - [ ] queued execution
 
 ### tabs
@@ -39,6 +42,10 @@
 - [x] memory of execution log and execution status
 - [x] memory of last opened workflow
 - [x] sqlite node meta
+- [ ] is it good to overwrite the older node log when the new one just cached?
+- [ ] move attpc_flow_cpp to package
+- [ ] solve frontend dependency and let uv handle frontend
+- [ ] instant nodes without execution
 
 ## run tag
 - [x] write new run tag
@@ -47,3 +54,4 @@
 
 ## other
 - [ ] better dialog in TopAppBar and FloatingButtons
+- [ ] remove check_graw_event_id and move it into attpc_merger_wrapper

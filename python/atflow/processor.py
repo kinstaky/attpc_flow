@@ -13,6 +13,7 @@ import json
 from .node_manager import NodeManager
 from .workflow import Workflow
 from .progress.progress_store import ProgressStore
+from atflow.progress import progress_store
 
 # Use 'spawn' context to avoid fork + polars/rayon thread pool deadlock.
 # When polars is used in the parent process (e.g. via RunTagDB API calls),
@@ -40,6 +41,7 @@ class TaskStatus(IntEnum):
 	READY = 2
 	QUEUED = 3
 	RUNNING = 4
+	CACHED = 5
 
 def run_node(task):
 	task["status"] = TaskStatus.RUNNING
@@ -323,6 +325,10 @@ class Processor:
 				continue
 			if outputs[port["link_port"]] is None:
 				task["status"] = TaskStatus.DISCARDED
+				self.progress_store.discard_task(
+					execution_id=self.environment["execution_id"],
+					task_id=task_id
+				)
 				self._chain_discard(task["id"])
 				break
 			else:
@@ -332,6 +338,10 @@ class Processor:
 		for task in self.tasks:
 			if task["status"] == TaskStatus.WAITING and task_id in task["waiting"]:
 				task["status"] = TaskStatus.DISCARDED
+				self.progress_store.discard_task(
+					execution_id=self.environment["execution_id"],
+					task_id=task_id
+				)
 				self._chain_discard(task["id"])
 
 	@classmethod

@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from atflow.node import Node
 from atflow.node_manager import auto_register_node
 from atflow.run_tag_db import RunTagDB
+from atflow.progress import progress_store
 
 from ._lib import merge_attpc
 
@@ -71,6 +72,7 @@ class AttpcMergerNode(Node):
         allowed_tags = {"missing", "pass", "incomplete"}
         if evtid_tag is None or evtid_tag not in allowed_tags:
             db.set_run_tag(workspace=workspace, run=run, tag=f"merger:unchecked", default_value="unmerged")
+            progress_store.discard_task(kwargs["execution_id"], kwargs["task_id"])
             return [None]
         merger_tag = db.get_run_tag(Path(workspace), run, "merger")
 

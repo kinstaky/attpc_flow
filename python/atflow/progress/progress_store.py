@@ -16,7 +16,7 @@ class TaskProgress(BaseModel):
     run: Optional[str] = None
     percentage: int
     timestamp: Optional[float] = None
-    status: Literal["running", "failed", "completed"]
+    status: Literal["running", "failed", "completed", "discarded", "cached"]
 
 class ExecutionStatus(BaseModel):
     execution_id: str
@@ -194,6 +194,76 @@ class ProgressStore:
             })
 
             logging.debug(f"Finished task: {execution_id}:{task_id}")
+
+    def discard_task(self, execution_id: str, task_id: str):
+        """Mark a task as discarded and notify WebSocket subscribers."""
+        with self._data_lock:
+            # Initialize execution data if needed
+            if execution_id not in self.tasks:
+                self.tasks[execution_id] = {}
+                logging.info(f"Initialized progress tracking for execution {execution_id}")
+
+            # Create or update task progress with discarded status
+            task_info = self.task_info.get(execution_id, {}).get(task_id, {})
+            progress = TaskProgress(
+                task_id=task_id,
+                task_name=getattr(task_info, 'name', None),
+                run=getattr(task_info, 'run', None),
+                percentage=0,
+                timestamp=time.time(),
+                status="discarded"
+            )
+
+            self.tasks[execution_id][task_id] = progress
+
+            # Update execution completed_tasks count
+            if execution_id in self.executions:
+                self.executions[execution_id].completed_tasks += 1
+
+            # Notify WebSocket subscribers
+            self._notify_subscribers({
+                "type": "task",
+                "timestamp": progress.timestamp,
+                "execution_id": execution_id,
+                "tasks": {k: v.model_dump() for k, v in self.tasks[execution_id].items()}
+            })
+
+            logging.debug(f"Discarded task: {execution_id}:{task_id}")
+
+    def cached_task(self, execution_id: str, task_id: str):
+        """Mark a task as cached (skipped due to cache hit) and notify WebSocket subscribers."""
+        with self._data_lock:
+            # Initialize execution data if needed
+            if execution_id not in self.tasks:
+                self.tasks[execution_id] = {}
+                logging.info(f"Initialized progress tracking for execution {execution_id}")
+
+            # Create or update task progress with cached status
+            task_info = self.task_info.get(execution_id, {}).get(task_id, {})
+            progress = TaskProgress(
+                task_id=task_id,
+                task_name=getattr(task_info, 'name', None),
+                run=getattr(task_info, 'run', None),
+                percentage=100,
+                timestamp=time.time(),
+                status="cached"
+            )
+
+            self.tasks[execution_id][task_id] = progress
+
+            # Update execution completed_tasks count
+            if execution_id in self.executions:
+                self.executions[execution_id].completed_tasks += 1
+
+            # Notify WebSocket subscribers
+            self._notify_subscribers({
+                "type": "task",
+                "timestamp": progress.timestamp,
+                "execution_id": execution_id,
+                "tasks": {k: v.model_dump() for k, v in self.tasks[execution_id].items()}
+            })
+
+            logging.debug(f"Cached task: {execution_id}:{task_id}")
 
     def register_tasks_information(self, execution_id: str, tasks: Dict[str, Dict[str, str]]):
         with self._data_lock:

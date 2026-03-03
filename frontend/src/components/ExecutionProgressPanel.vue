@@ -151,10 +151,10 @@ onUnmounted(() => {
       <v-tab value="history">History</v-tab>
     </v-tabs>
 
-    <v-window v-model="activeTab" class="fill-height">
+    <v-window v-model="activeTab" class="panel-window">
       <!-- Active Executions Tab -->
-      <v-window-item value="active" class="fill-height">
-        <div class="pa-3">
+      <v-window-item value="active" class="panel-window-item">
+        <div class="tab-scroll pa-3">
       <!-- Loading state -->
       <div v-if="loading" class="text-center py-4">
         <v-progress-circular indeterminate size="24" class="mr-2" />
@@ -193,8 +193,8 @@ onUnmounted(() => {
       </v-window-item>
 
       <!-- History Tab -->
-      <v-window-item value="history" class="fill-height">
-        <div class="pa-3">
+      <v-window-item value="history" class="panel-window-item">
+        <div class="tab-scroll pa-3">
           <!-- Loading state -->
           <div v-if="historyLoading" class="text-center py-4">
             <v-progress-circular indeterminate size="24" class="mr-2" />
@@ -249,6 +249,27 @@ onUnmounted(() => {
 /* Position the panel to the right of the side nav */
 :deep(.status-panel) {
   left: 56px !important;
+}
+
+:deep(.status-panel .v-navigation-drawer__content) {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.panel-window {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.panel-window-item {
+  height: 100%;
+}
+
+.tab-scroll {
+  height: 100%;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .execution-list {

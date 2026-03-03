@@ -38,6 +38,9 @@ atflow = "atflow.launcher:main"
 requires = ["uv-build>=0.10.2,<0.11"]
 build-backend = "uv_build"
 
+[tool.uv]
+reinstall-package = ["attpc-flow-frontend"]
+
 [tool.uv.build-backend]
 module-name = "atflow"
 module-root = "python"

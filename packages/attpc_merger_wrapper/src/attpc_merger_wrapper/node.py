@@ -44,6 +44,10 @@ class AttpcMergerNode(Node):
         return "merger"
 
     @property
+    def type(self) -> str:
+        return "run"
+
+    @property
     def inputs(self) -> Dict[str, str]:
         return {}
 

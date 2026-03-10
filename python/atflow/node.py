@@ -40,6 +40,12 @@ class Node(ABC):
 
     @property
     @abstractmethod
+    def type(self) -> str:
+        """Return the node type."""
+        ...
+
+    @property
+    @abstractmethod
     def inputs(self) -> Dict[str, str]:
         """Return input schema as {name: type}."""
         ...

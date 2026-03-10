@@ -31,6 +31,10 @@ class ConstIntNode(Node):
         return "basic"
 
     @property
+    def type(self) -> str:
+        return "instant"
+
+    @property
     def inputs(self) -> Dict[str, str]:
         return {}
 
@@ -72,6 +76,10 @@ class ConstListIntNode(Node):
     @property
     def category(self) -> str:
         return "basic"
+
+    @property
+    def type(self) -> str:
+        return "instant"
 
     @property
     def inputs(self) -> Dict[str, str]:
@@ -117,6 +125,10 @@ class LoadRunNode(Node):
         return "basic"
 
     @property
+    def type(self) -> str:
+        return "instant"
+
+    @property
     def inputs(self) -> Dict[str, str]:
         return {}
 
@@ -159,6 +171,10 @@ class LoadRunListNode(Node):
     @property
     def category(self) -> str:
         return "basic"
+
+    @property
+    def type(self) -> str:
+        return "instant"
 
     @property
     def inputs(self) -> Dict[str, str]:

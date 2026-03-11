@@ -10,7 +10,7 @@ requires-python = ">=3.12"
 dependencies = []
 
 [project.entry-points."attpc_nodes"]
-attpc_merger = "attpc_merger_wrapper.node:AttpcMergerNode"
+attpc_merger = "attpc_merger_wrapper.attpc_merger_wrapper_node:AttpcMergerNode"
 
 [build-system]
 requires = ["maturin>=1.0,<2.0"]

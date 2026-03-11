@@ -130,7 +130,7 @@ fn write_hdf_bad_events(hdf_path: &Path, bad_events: &[u64]) -> Result<(), hdf5:
 }
 
 #[pyfunction]
-fn merge_attpc(
+fn merger_attpc_binding(
     execution_id: String,
     task_id: i32,
     workspace: String,
@@ -311,5 +311,5 @@ fn merge_attpc(
 #[pymodule]
 mod _lib {
     #[pymodule_export]
-    use super::merge_attpc;
+    use super::merger_attpc_binding;
 }

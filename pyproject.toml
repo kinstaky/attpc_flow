@@ -26,6 +26,7 @@ dependencies = [
 
 [project.optional-dependencies]
 merger = ["attpc-merger-wrapper"]
+storage = ["attpc-storage"]
 
 [project.urls]
 Homepage = "https://github.com/kinstaky/attpc_flow"
@@ -50,10 +51,12 @@ attpc-flow = { workspace = true }
 attpc-flow-cpp = { workspace = true }
 attpc-flow-frontend = { workspace = true }
 attpc-merger-wrapper = { workspace = true }
+attpc-storage = { workspace = true }
 
 [tool.uv.workspace]
 members = [
     "attpc_flow_cpp",
     "frontend",
     "packages/attpc_merger_wrapper",
+    "packages/attpc_storage",
 ]

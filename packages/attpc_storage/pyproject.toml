@@ -1,0 +1,33 @@
+[project]
+name = "attpc-storage"
+version = "0.1.0"
+description = "HDF5 storage package for ATTPC Flow"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+    { name = "kinstaky" },
+]
+dependencies = [
+    "h5py>=3.10.0",
+    "numpy>=2.0.0",
+    "pydantic>=2.12",
+]
+
+[project.entry-points."attpc_nodes"]
+hdf5_reader = "attpc_storage.attpc_storage_node:Hdf5ReaderNode"
+hdf5_writer = "attpc_storage.attpc_storage_node:Hdf5WriterNode"
+hdf5_checkpoint = "attpc_storage.attpc_storage_node:Hdf5CheckpointNode"
+
+[build-system]
+requires = ["uv-build>=0.10.2,<0.11"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "attpc_storage"
+module-root = "src"
+
+[tool.uv]
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "src/**/*.py" },
+]

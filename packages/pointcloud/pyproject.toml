@@ -1,0 +1,40 @@
+[project]
+name = "attpc-pointcloud"
+version = "0.1.0"
+description = "Phase-1 pointcloud/event nodes for ATTPC Flow"
+readme = "README.md"
+requires-python = ">=3.12"
+authors = [
+    { name = "kinstaky" },
+]
+dependencies = [
+    "numpy>=2.0.0",
+    "scipy>=1.16.1",
+    "numba>=0.61.2",
+    "pydantic>=2.12",
+]
+
+[project.entry-points."attpc_nodes"]
+attpc_adapter = "pointcloud.point_cloud_node:AttpcAdapterNode"
+silicon_adapter = "pointcloud.point_cloud_node:SiliconAdapterNode"
+gagg_adapter = "pointcloud.point_cloud_node:GaggAdapterNode"
+fft_filter = "pointcloud.point_cloud_node:FftFilterNode"
+peak_finder = "pointcloud.point_cloud_node:PeakFinderNode"
+tpc_hits = "pointcloud.point_cloud_node:TpcHitsNode"
+silicon_hits = "pointcloud.point_cloud_node:SiliconHitsNode"
+gagg_hits = "pointcloud.point_cloud_node:GaggHitsNode"
+ion_chamber_hits = "pointcloud.point_cloud_node:IonChamberHitsNode"
+
+[build-system]
+requires = ["uv-build>=0.10.2,<0.11"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = "pointcloud"
+module-root = "src"
+
+[tool.uv]
+cache-keys = [
+    { file = "pyproject.toml" },
+    { file = "src/**/*.py" },
+]

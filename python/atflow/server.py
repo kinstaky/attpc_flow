@@ -20,9 +20,9 @@ from typing import Dict, List, Optional, Any
 from pathlib import Path
 from multiprocessing import Queue
 
-from atflow.node_manager import NodeManager
-from atflow.nodes import *  # Import all nodes to register them
-from atflow.progress.progress_store import (
+from .node_manager import NodeManager
+from .nodes import *  # Import all nodes to register them
+from .progress.progress_store import (
     TaskProgress,
     progress_store,
     ExecutionStatus,
@@ -206,7 +206,7 @@ def organize_nodes_by_category() -> Dict[str, List[str]]:
 	for name in manager.list_nodes():
 		node = manager.get_node(name)
 		if node:
-			category = node.category
+			category = node.category()
 			if category not in categories:
 				categories[category] = []
 
@@ -264,11 +264,11 @@ async def get_node(node_name: str):
 
 		return NodeResponse(
 			name=node_name,
-			category=node.category,
-			inputs=node.inputs,
-			outputs=node.outputs,
-			properties=node.properties,
-			parameters=get_node_schema(node.parameters_model),
+			category=node.category(),
+			inputs=node.inputs(),
+			outputs=node.outputs(),
+			properties=node.properties(),
+			parameters=get_node_schema(node.parameters_model()),
 		)
 	except HTTPException:
 		raise
@@ -286,11 +286,11 @@ async def get_dev_node(node_name: str):
 
 		return {
 			"name": node_name,
-			"category": node.category,
-			"inputs": node.inputs,
-			"outputs": node.outputs,
-			"properties": node.properties,
-			"parameters": node.parameters_model.model_json_schema() if node.parameters_model else None
+			"category": node.category(),
+			"inputs": node.inputs(),
+			"outputs": node.outputs(),
+			"properties": node.properties(),
+			"parameters": node.parameters_model().model_json_schema() if node.parameters_model() else None
 		}
 	except HTTPException:
 		raise

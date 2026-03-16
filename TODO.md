@@ -1,6 +1,7 @@
 # Todo
 ## Analysis
 - [ ] wrap spyral point cloud phase
+- [ ] check trace
 
 ## UI
 - [x] beautify task progress
@@ -10,11 +11,12 @@
 - [x] unify workflow graph edit command: pop_node, push_node, insert_node, delete_node, ..link, move node,
 - [x] change to unsave when edit node property, worksapce, core, run
 - [x] history execution and status
-- [ ] versbose options for workflow and node command
+- [x] versbose options for workflow and node command
 - [x] discarded/cached task
-- [ ] fail task
+- [x] fail task
 - [x] memory of executing
 - [ ] queued execution
+- [ ] dependency to node itself
 
 ### tabs
 - [x] welcome page for no tabs
@@ -27,10 +29,12 @@
 - [x] check merged
 - [x] node category
 - [x] record bad events
+- [ ] renew bad events, first delete the old bad events, then create new bad events
 
 ## processor
 - [x] special treatment to "run_loader", less discard
 - [x] adapt workflow in processor
+- [ ] dependency to node itself
 
 ## framework
 - [x] run statiscs (time, size, trigger...)
@@ -44,7 +48,7 @@
 - [x] sqlite node meta
 - [ ] is it good to overwrite the older node log when the new one just cached?
 - [ ] move attpc_flow_cpp to package
-- [ ] solve frontend dependency and let uv handle frontend
+- [x] solve frontend dependency and let uv handle frontend
 - [ ] instant nodes without execution
 
 ## run tag

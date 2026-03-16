@@ -11,3 +11,9 @@ __pycache__
 
 # cpp build
 build
+
+# project specific ignore
+logs
+.tmp
+scripts
+workflows

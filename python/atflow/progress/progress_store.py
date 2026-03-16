@@ -270,16 +270,6 @@ class ProgressStore:
             self.task_info[execution_id] = {
                 task_id: TaskInfo(**task_info) for task_id, task_info in tasks.items()
             }
-            # import json
-            # print(json.dumps(
-            #     {
-            #         execution_id: {
-            #             task_id: task_info.model_dump()
-            #             for task_id, task_info in infos.items()
-            #         } for execution_id, infos in self.task_info.items()
-            #     },
-            #     indent=2
-            # ))
 
     def start_execution(self, execution_id: str, total_tasks: int):
         """Start an execution and notify WebSocket subscribers."""

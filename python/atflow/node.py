@@ -6,7 +6,7 @@ import json
 import sqlite3
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Dict, List, Type
+from typing import Any, Type
 
 from pydantic import BaseModel
 
@@ -14,61 +14,63 @@ from pydantic import BaseModel
 class Node(ABC):
     """Abstract base class for all nodes in the ATTPC Flow framework."""
 
-    @property
-    @abstractmethod
-    def name(self) -> str:
+    _name: str = "node"
+    _version: str = "1.0.0"
+    _description: str = ""
+    _category: str = "unknown"
+    _type: str = "unknown"
+    _inputs: dict[str, str] = {}
+    _outputs: dict[str, str] = {}
+    _properties: dict[str, str] = {}
+    _parameters: Type[BaseModel] | None = None
+
+    @classmethod
+    def name(cls) -> str:
         """Return the node name."""
-        ...
+        return cls._name
 
-    @property
-    @abstractmethod
-    def version(self) -> str:
+    @classmethod
+    def version(cls) -> str:
         """Return the node version."""
-        ...
+        return cls._version
 
-    @property
-    @abstractmethod
-    def description(self) -> str:
+    @classmethod
+    def description(cls) -> str:
         """Return the node description."""
-        ...
+        return cls._description
 
-    @property
-    @abstractmethod
-    def category(self) -> str:
+    @classmethod
+    def category(cls) -> str:
         """Return the node category."""
-        ...
+        return cls._category
 
-    @property
-    @abstractmethod
-    def type(self) -> str:
+    @classmethod
+    def type(cls) -> str:
         """Return the node type."""
-        ...
+        return cls._type
 
-    @property
-    @abstractmethod
-    def inputs(self) -> Dict[str, str]:
+    @classmethod
+    def inputs(cls) -> dict[str, str]:
         """Return input schema as {name: type}."""
-        ...
+        return cls._inputs
 
-    @property
-    @abstractmethod
-    def outputs(self) -> Dict[str, str]:
+    @classmethod
+    def outputs(cls) -> dict[str, str]:
         """Return output schema as {name: type}."""
-        ...
+        return cls._outputs
 
-    @property
-    @abstractmethod
-    def properties(self) -> Dict[str, str]:
+    @classmethod
+    def properties(cls) -> dict[str, str]:
         """Return configurable properties as {name: type}."""
-        ...
+        return cls._properties
 
-    @property
-    def parameters_model(self) -> Type[BaseModel] | None:
+    @classmethod
+    def parameters_model(cls) -> Type[BaseModel] | None:
         """Return Pydantic model for parameter validation."""
-        return None
+        return cls._parameters
 
     @abstractmethod
-    def execute(self, **kwargs: Any) -> List[Any]:
+    def execute(self, **kwargs: Any) -> list[Any]:
         """Execute the node logic.
 
         Args:
@@ -124,12 +126,12 @@ class Node(ABC):
                 run, execution_id, task_id, version
             ) VALUES (?, ?, ?, ?)
         """,
-            (run, execution_id, task_id, self.version)
+            (run, execution_id, task_id, self.version())
         )
         conn.commit()
         conn.close()
 
-    def validate_parameters(self, params: Dict[str, Any]) -> Dict[str, Any]:
+    def validate_parameters(self, params: dict[str, Any]) -> dict[str, Any]:
         """Validate parameters using Pydantic model if available.
 
         Args:
@@ -141,7 +143,7 @@ class Node(ABC):
         Raises:
             ValueError: If parameter validation fails
         """
-        if self.parameters_model:
+        if self.parameters_model():
             try:
                 return self.parameters_model(**params).model_dump()
             except Exception as e:

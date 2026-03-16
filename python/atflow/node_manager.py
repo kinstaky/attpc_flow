@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import importlib.metadata
+import importlib
 import subprocess
 import sys
 import tomllib
 import zipfile
 import threading
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Type
+from typing import Any, Optional, Type
 
 from .node import Node
 
@@ -36,22 +37,21 @@ def auto_register_node(cls: Type[Node]) -> Type[Node]:
                 return "my_node"
             ...
     """
-    node = cls()
 
     # First check without lock (fast path)
     if _global_manager is not None:
-        _global_manager.register_node(node)
+        _global_manager.register_node(cls)
         return cls
 
     # Slow path with lock - double-check pattern
     with _manager_lock:
         # Double-check after acquiring lock
         if _global_manager is not None:
-            _global_manager.register_node(node)
+            _global_manager.register_node(cls)
         else:
             if not hasattr(auto_register_node, '_pending_nodes'):
                 auto_register_node._pending_nodes = []
-            auto_register_node._pending_nodes.append(node)
+            auto_register_node._pending_nodes.append(cls)
 
     return cls
 
@@ -68,8 +68,8 @@ def set_global_manager(manager: 'NodeManager') -> None:
 
         # Register any pending nodes
         if hasattr(auto_register_node, '_pending_nodes'):
-            for node in auto_register_node._pending_nodes:
-                manager.register_node(node)
+            for cls in auto_register_node._pending_nodes:
+                manager.register_node(cls)
             auto_register_node._pending_nodes.clear()
 
 
@@ -90,7 +90,7 @@ class NodeManager:
         if hasattr(self, '_initialized'):
             return
 
-        self._nodes: Dict[str, Node] = {}
+        self._nodes: dict[str, Type[Node]] = {}
         self._external_node_path: Optional[Path] = None
         self._nodes_lock = threading.Lock()
         self._initialized = True
@@ -127,9 +127,7 @@ class NodeManager:
             for ep in eps:
                 try:
                     node_class = ep.load()
-                    node = node_class()
-                    with self._nodes_lock:
-                        self._nodes[node.name] = node
+                    self.register_node(node_class, force=True)
                 except Exception as e:
                     print(f"Failed to load node {ep.name}: {e}")
         except Exception as e:
@@ -211,9 +209,7 @@ class NodeManager:
                 try:
                     module = importlib.import_module(package_name)
                     node_class = getattr(module, class_name)
-                    node = node_class()
-                    with self._nodes_lock:
-                        self._nodes[node.name] = node
+                    self.register_node(node_class, force=True)
                     print(f"Loaded external node: {node_name}")
                 except Exception as e:
                     print(f"Failed to import {node_name}: {e}")
@@ -221,7 +217,7 @@ class NodeManager:
             except Exception as e:
                 print(f"Failed to load external node from {node_dir}: {e}")
 
-    def register_node(self, node: Node, force: bool = False) -> None:
+    def register_node(self, node: Type[Node], force: bool = False) -> None:
         """Register a node instance.
 
         Args:
@@ -232,9 +228,9 @@ class NodeManager:
             ValueError: If node is already registered and force=False
         """
         with self._nodes_lock:
-            if node.name in self._nodes and not force:
+            if node in self._nodes and not force:
                 raise ValueError(f"Node '{node.name}' is already registered. Use force=True to overwrite.")
-            self._nodes[node.name] = node
+            self._nodes[node.name()] = node
 
     def unregister_node(self, name: str) -> Optional[Node]:
         """Unregister a node by name.
@@ -260,19 +256,58 @@ class NodeManager:
         with self._nodes_lock:
             return name in self._nodes
 
-    def get_node(self, name: str) -> Optional[Node]:
-        """Get a node by name.
-
-        Args:
-            name: The name of the node to retrieve
-
-        Returns:
-            The node instance, or None if not found
-        """
+    def get_node(self, name: str) -> Type[Node]:
+        """Get the registered node class by name."""
         with self._nodes_lock:
             return self._nodes.get(name)
 
-    def list_nodes(self) -> List[str]:
+    def create_node(self, name: str, **kwargs: Any) -> Node:
+        """Create a fresh node instance by name.
+
+        The processor uses fresh instances for task execution so stream/event
+        nodes can keep per-task runtime state without sharing it globally.
+        """
+        node_class = self.get_node(name)
+        try:
+            return node_class(**kwargs)
+        except TypeError:
+            # Most existing nodes still use zero-argument constructors.
+            return node_class()
+
+    # def build_params(
+    #     self,
+    #     *,
+    #     execution_id: str,
+    #     task_id: int,
+    #     environment: Dict[str, Any],
+    #     parameters: Dict[str, Any],
+    # ) -> Dict[str, Any]:
+    #     """Merge execution context, inputs, and properties into node kwargs.
+
+    #     `inputs` and `properties` are kept distinct in the processor, but the
+    #     node execution API still receives one merged kwargs dictionary.
+    #     """
+    #     return {
+    #         "execution_id": execution_id,
+    #         "task_id": task_id,
+    #         **environment,
+    #         **parameters,
+    #     }
+
+    def validate_node_params(self, name: str, params: dict[str, Any]) -> dict[str, Any]:
+        """Validate merged parameters with the registered metadata node.
+
+        Batch tasks go through this path at execution time. Event tasks avoid
+        validation in the hot loop by resolving properties earlier and calling
+        `node.execute(...)` directly inside `run_event_task`.
+        """
+        node_class = self.get_node(name)
+        if not node_class:
+            raise ValueError(f"Node '{name}' is not registered.")
+        parameters_model = node_class.parameters_model()
+        return parameters_model(params)
+
+    def list_nodes(self) -> list[str]:
         """List all registered node names.
 
         Returns:
@@ -286,10 +321,11 @@ class NodeManager:
         name: str,
         execution_id: str,
         task_id: int,
-        environment: Dict[str, Any],
-        inputs: Dict[str, Any],
-        properties: Dict[str, Any]
-    ) -> List[Any]:
+        environment: dict[str, Any],
+        parameters: dict[str, Any],
+        *,
+        write_meta: bool = True,
+    ) -> list[Any]:
         """Execute a node by name with given parameters.
 
         Args:
@@ -299,6 +335,7 @@ class NodeManager:
             environment: Environment variables
             inputs: Input values
             properties: Property values
+            write_meta: Whether to write node metadata after execution
 
         Returns:
             List of output values from the node
@@ -306,34 +343,47 @@ class NodeManager:
         Raises:
             ValueError: If node is not registered
         """
-        node = self.get_node(name)
-        if not node:
+        node_class = self.get_node(name)
+        if not node_class:
             raise ValueError(f"Node '{name}' is not registered.")
+        if node_class.type() != "batch" and node_class.type() != "instant":
+            raise ValueError(f"Only batch and instant nodes can be executed: {node_class.type()}")
 
-        # Combine parameters
         params = {
             "execution_id": execution_id,
             "task_id": task_id,
             **environment,
-            **inputs,
-            **properties
+            **parameters,
         }
+        validated_params = node_class.parameters_model()(**params).model_dump()
 
-        # Validate parameters
-        validated_params = node.validate_parameters(params)
-
-        # Execute node
+        # Batch/instant execution still uses the generic manager path: build
+        # params, validate once, run, then write per-run metadata if available.
+        node = node_class()
         result = node.execute(**validated_params)
 
         # Write metadata
         workspace = params.get("workspace")
         run = params.get("run")
-        if workspace is not None and run is not None:
+        if write_meta and workspace is not None and run is not None:
             node.write_meta(workspace, execution_id, task_id, run)
 
         return result
 
-    def get_node_info(self, name: str) -> Optional[Dict[str, Any]]:
+    def instant_execute_node(
+        self,
+        name: str,
+        parameters: dict[str, Any],
+    ) -> list[Any]:
+        """Execute a node instantly without writing metadata."""
+        node_class = self.get_node(name)
+        if not node_class:
+            raise ValueError(f"Node '{name}' is not registered.")
+        node = node_class()
+        validated = node.validate_parameters(parameters)
+        return node.execute(**validated)
+
+    def get_node_info(self, name: str) -> Optional[dict[str, Any]]:
         """Get node information including schemas.
 
         Args:
@@ -342,17 +392,17 @@ class NodeManager:
         Returns:
             Dictionary with node information, or None if not found
         """
-        node = self.get_node(name)
-        if not node:
+        node_class = self.get_node(name)
+        if not node_class:
             return None
 
         return {
-            "name": node.name,
-            "version": node.version,
-            "description": node.description,
-            "category": node.category,
-            "inputs": node.inputs,
-            "outputs": node.outputs,
-            "properties": node.properties,
-            "parameters_model": node.parameters_model
+            "name": node_class.name(),
+            "version": node_class.version(),
+            "description": node_class.description(),
+            "category": node_class.category(),
+            "inputs": node_class.inputs(),
+            "outputs": node_class.outputs(),
+            "properties": node_class.properties(),
+            "parameters_model": node_class.parameters_model(),
         }

@@ -27,6 +27,7 @@ dependencies = [
 [project.optional-dependencies]
 merger = ["attpc-merger-wrapper"]
 storage = ["attpc-storage"]
+pointcloud = ["attpc-pointcloud"]
 
 [project.urls]
 Homepage = "https://github.com/kinstaky/attpc_flow"
@@ -39,9 +40,6 @@ atflow = "atflow.launcher:main"
 requires = ["uv-build>=0.10.2,<0.11"]
 build-backend = "uv_build"
 
-[tool.uv]
-reinstall-package = ["attpc-flow-frontend"]
-
 [tool.uv.build-backend]
 module-name = "atflow"
 module-root = "python"
@@ -52,6 +50,7 @@ attpc-flow-cpp = { workspace = true }
 attpc-flow-frontend = { workspace = true }
 attpc-merger-wrapper = { workspace = true }
 attpc-storage = { workspace = true }
+attpc-pointcloud = { workspace = true }
 
 [tool.uv.workspace]
 members = [
@@ -59,4 +58,5 @@ members = [
     "frontend",
     "packages/attpc_merger_wrapper",
     "packages/attpc_storage",
+    "packages/pointcloud",
 ]

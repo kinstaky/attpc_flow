@@ -1,16 +1,19 @@
 """ATTPC merger workflow node."""
 
-from typing import Any, Dict, List, Type
+from __future__ import annotations
 
-from pydantic import BaseModel
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict
 
 from atflow.node import Node
 from atflow.node_manager import auto_register_node
 
 from .api import merge_attpc
 
-
 class AttpcMergerParameters(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+
     execution_id: str
     task_id: int
     workspace: str
@@ -19,49 +22,23 @@ class AttpcMergerParameters(BaseModel):
     map: str
     run: int
 
+
 @auto_register_node
 class AttpcMergerNode(Node):
-    @property
-    def name(self) -> str:
-        return "attpc_merger"
+    _name = "attpc_merger"
+    _version = "1.1.1"
+    _description = "Merge graw and evt files into hdf5 file through libattpc_merger"
+    _category = "merger"
+    _type = "batch"
+    _inputs = {}
+    _outputs = {}
+    _properties = {
+        "graw": "str",
+        "evt": "str",
+        "map": "str",
+    }
+    _parameters = AttpcMergerParameters
 
-    @property
-    def version(self) -> str:
-        return "1.1.1"
-
-    @property
-    def description(self) -> str:
-        return "Merge graw and evt files into hdf5 file through libattpc_merger"
-
-    @property
-    def category(self) -> str:
-        return "merger"
-
-    @property
-    def type(self) -> str:
-        return "run"
-
-    @property
-    def inputs(self) -> Dict[str, str]:
-        return {}
-
-    @property
-    def outputs(self) -> Dict[str, str]:
-        return {"run": "int"}
-
-    @property
-    def properties(self) -> Dict[str, str]:
-        return {
-            "graw": "str",
-            "evt": "str",
-            "map": "str",
-            "run": "int",
-        }
-
-    @property
-    def parameters_model(self) -> Type[BaseModel]:
-        return AttpcMergerParameters
-
-    def execute(self, **kwargs: Any) -> List[Any]:
+    def execute(self, **kwargs: Any) -> list[Any]:
         result = merge_attpc(**kwargs)
         return [result]

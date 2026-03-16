@@ -208,13 +208,13 @@ class Hdf5Reader:
         """Defensively close the file if the object is garbage-collected."""
         self.close()
 
-    def reset_iteration(self) -> None:
-        """Reset the next event id to the current range start."""
-        self._next_event_id = self._range_start
+    def event_id(self) -> int:
+        """Return the current event id."""
+        return self._next_event_id
 
     def reset(self) -> None:
-        """Backward-compatible alias for :meth:`reset_iteration`."""
-        self.reset_iteration()
+        """Reset the next event id to the current range start."""
+        self._next_event_id = self._range_start
 
     def get_range(self) -> tuple[int, int]:
         """Return the currently active inclusive event-id range."""

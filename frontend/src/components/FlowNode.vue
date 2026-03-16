@@ -317,6 +317,10 @@ const isPropertySelf = (nodeId: number, portIndex: number) => {
   background: v-bind('interfaceColor["bool"]') !important; /* Purple */
 }
 
+:deep(.handle-matrix) {
+  background: v-bind('interfaceColor["matrix"]') !important; /* Red */
+}
+
 :deep(.vue-flow__handle:hover) {
   transform: translateY(-50%) scale(1.2) !important;
 }
@@ -342,6 +346,10 @@ const isPropertySelf = (nodeId: number, portIndex: number) => {
 
 :deep(.handle-bool:hover) {
   background: v-bind('interfaceHoverColor["bool"]') !important;
+}
+
+:deep(.handle-matrix:hover) {
+  background: v-bind('interfaceHoverColor["matrix"]') !important;
 }
 
 /* Array hover states - maintain diamond shape with scaling */
@@ -371,6 +379,10 @@ const isPropertySelf = (nodeId: number, portIndex: number) => {
 
 :deep(.handle-unlinked.handle-str:hover) {
   background: v-bind('interfaceHoverColor["str"]') !important;
+}
+
+:deep(.handle-unlinked.handle-matrix:hover) {
+  background: v-bind('interfaceHoverColor["matrix"]') !important;
 }
 
 :deep(.v-card) {

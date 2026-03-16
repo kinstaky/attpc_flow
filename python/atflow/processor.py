@@ -1,59 +1,33 @@
-"""
-Task processing and execution logic for ATTPC Flow.
-Handles individual task execution and workflow orchestration.
-"""
-
 import concurrent.futures
-import multiprocessing
-from enum import IntEnum
-from typing import Dict, Any
+import importlib
 import logging
-import json
+import multiprocessing
+from dataclasses import asdict, is_dataclass
+from typing import Any
 
 from .node_manager import NodeManager
-from .workflow import Workflow
 from .progress.progress_store import ProgressStore
-from atflow.progress import progress_store
+from .tasks import (
+	Task,
+	BatchTask,
+	EventTask,
+	Dependency,
+	EventTaskUnit,
+	TaskStatus,
+)
+from .workflow import Workflow
 
-# Use 'spawn' context to avoid fork + polars/rayon thread pool deadlock.
-# When polars is used in the parent process (e.g. via RunTagDB API calls),
-# its rayon thread pool is initialized. fork() inherits the dead thread pool
-# state, causing child processes to deadlock when they use polars.
-_mp_context = multiprocessing.get_context('spawn')
+logger = logging.getLogger(__name__)
+_mp_context = multiprocessing.get_context("spawn")
 
-def _init_worker():
-	"""Initialize worker process for spawn context.
-	With 'spawn', child processes start fresh and need to re-register nodes."""
-	# Import node modules to trigger @auto_register_node decorators
-	import importlib
-	importlib.import_module('atflow.nodes')
+def _run_task(task: Task) -> list[Any]:
+	return task.run()
+
+def _init_worker() -> None:
+	"""Initialize worker process for spawn context."""
+	importlib.import_module("atflow.nodes")
 	manager = NodeManager()
 	manager.discover_nodes()
-
-# Set up logger
-logger = logging.getLogger(__name__)
-
-class TaskStatus(IntEnum):
-	DISCARDED = -2
-	FAILED = -1
-	COMPLETED = 0
-	WAITING = 1
-	READY = 2
-	QUEUED = 3
-	RUNNING = 4
-	CACHED = 5
-
-def run_node(task):
-	task["status"] = TaskStatus.RUNNING
-	manager = NodeManager()
-	return manager.execute_node(
-		name=task["name"],
-		execution_id=task["execution_id"],
-		task_id=task["id"],
-		environment=task["environment"],
-		inputs=task["inputs"],
-		properties=task["properties"]
-	)
 
 class Processor:
 	def __init__(self, execution_id: str, workflow: Workflow):
@@ -63,22 +37,29 @@ class Processor:
 			"workspace": workflow.workspace,
 			"run_list": workflow.run.runs,
 		}
+
+		self.manager = NodeManager()
+		self.manager.discover_nodes()
+
+		self.resolved_workflow = {}
+		self.task_templates = {}
+		self.tasks: list[Task] = []
+		self.futures_to_task: dict[concurrent.futures.Future[list[object]], Task] = {}
 		self._init_tasks(workflow)
-		self.futures_to_task = {}
-		# Progress store for direct updates
 		self.progress_store = ProgressStore()
 		self.progress_store.register_tasks_information(
 			execution_id,
 			{
-				str(task["id"]) : {
-					"name": task["name"],
-					"run": task["environment"]["run_str"],
-				} for task in self.tasks
+				str(task.id): {
+					"name": task.name,
+					"run": str(task.environment["run"]),
+				}
+				for task in self.tasks
 			}
 		)
-	def process(self):
-		execution_id = self.environment.get("execution_id")
-		# Report execution start
+
+	def process(self) -> None:
+		execution_id = self.environment["execution_id"]
 		self.progress_store.start_execution(execution_id, len(self.tasks))
 
 		with concurrent.futures.ProcessPoolExecutor(
@@ -89,262 +70,408 @@ class Processor:
 			# submit initial ready tasks
 			self._submit_ready_tasks(executor)
 			while self.futures_to_task:
-				# Use as_completed to iterate over futures as they complete
 				for future in concurrent.futures.as_completed(self.futures_to_task):
-					# get task from future
 					task = self.futures_to_task.pop(future, None)
 					if task is None:
 						continue
-					# check result
 					try:
-						# success
 						result = future.result()
-						task["status"] = TaskStatus.COMPLETED
-						task["outputs"] = result
+						task.status = TaskStatus.COMPLETED
+						task.outputs = result
+						logger.info("Task %s (%s) completed", task.id, task.name)
+					except Exception as error:
+						task.status = TaskStatus.FAILED
+						logger.error("Task %s (%s) failed: %s", task.id, task.name, error)
+						self.progress_store.finish_task(execution_id, str(task.id), failed=True)
 
-					except Exception as e:
-						# failed
-						task["status"] = TaskStatus.FAILED
-						logger.error(f"Task {task['id']} failed: {e}")
-						# Report task failed
-						self.progress_store.finish_task(execution_id, str(task["id"]), failed=True)
-
-					finally:
-						completed_tasks = 0
-						for jtask in self.tasks:
-							if (
-								jtask["status"] == TaskStatus.DISCARDED
-								or jtask["status"] == TaskStatus.FAILED
-								or jtask["status"] == TaskStatus.COMPLETED
-							):
-								completed_tasks += 1
-						self.progress_store.update_execution_progress(
-							execution_id,
-							completed_tasks,
-							len(self.tasks)
+					completed_tasks = sum(
+						1
+						for current in self.tasks
+						if current.status in (
+							TaskStatus.DISCARDED,
+							TaskStatus.FAILED,
+							TaskStatus.COMPLETED,
 						)
-						logger.debug(f"Execution {execution_id} progress: {completed_tasks}/{len(self.tasks)}")
-
-					# submit new tasks
-					self._reduce_waiting(task["id"])
+					)
+					self.progress_store.update_execution_progress(
+						execution_id,
+						completed_tasks,
+						len(self.tasks),
+					)
+					self._reduce_waiting(task.id)
 					self._submit_ready_tasks(executor)
-
-					# Break out of as_completed loop to re-evaluate futures_to_task
 					break
 
-		# Report execution finish
-		self.progress_store.finish_execution(execution_id, len(self.tasks))
+			self.progress_store.finish_execution(execution_id, len(self.tasks))
 
-		for task in self.tasks:
-			if task["status"] == TaskStatus.COMPLETED:
-				logger.info(f"Task {task["id"]} completed with result: {task["outputs"]}")
-			elif task["status"] == TaskStatus.FAILED:
-				logger.info(f"Task {task["id"]} failed.")
+	def _init_tasks(self, workflow: Workflow) -> None:
+		self._resolve_workflow(workflow)
+		self._nodes_to_tasks(self.resolved_workflow)
+		self._compile_tasks(self.task_templates)
 
-	def _init_tasks(self, workflow: Workflow):
-		# print(json.dumps(workflow.model_dump(), indent=2))
-		adapted = self._adapt_workflow(workflow)
-		print(json.dumps(adapted, indent=2))
-
-		load_run_nodes = []
-		single_mode_nodes = []
-		multiple_mode_nodes = []
-		for node in adapted["nodes"]:
-			if node["name"] == "load_run":
-				single_mode_nodes.append(node["id"])
-				load_run_nodes.append(node["id"])
-			elif node["name"] == "load_list_run":
-				multiple_mode_nodes.append(node["id"])
-		if len(multiple_mode_nodes) != 0:
-			raise NotImplementedError("Multiple mode nodes are not supported yet.")
-		change = True
-		while change:
-			change = False
-			for node in adapted["nodes"]:
-				if node["id"] in single_mode_nodes:
-					continue
-				for depend_node in node["waiting"]:
-					if depend_node in single_mode_nodes:
-						single_mode_nodes.append(node["id"])
-						change = True
-
-		# solve load run
-		self.tasks = []
-		task_id = 0
-		task_id_map = {}
-		for run in self.environment["run_list"]:
-			for node in adapted["nodes"]:
-				if node["name"] == "load_run":
-					continue
-				task = {
-					"execution_id": self.environment["execution_id"],
-					"id": task_id,
-					"name": node["name"],
-					"environment": {
-						"run": run,
-						"run_str": str(run),
-						"workspace": self.environment["workspace"],
-						**self.environment
-					},
-					"ports": [],
-					"inputs": {},
-					"properties": {},
-					"waiting": [],
-					"status": TaskStatus.WAITING
-				}
-				for port in node["inputs"]:
-					if port["link_node"] == -1:
-						task["inputs"][port["name"]] = port["value"]
-					elif port["link_node"] in load_run_nodes:
-						task["inputs"][port["name"]] = int(run)
-					else:
-						task["ports"].append({
-							"port": "inputs",
-							"name": port["name"],
-							"link_task": (run, port["link_node"]),
-							"link_port": port["link_port"],
-						})
-				for port in node["properties"]:
-					if port["link_node"] == -1:
-						task["properties"][port["name"]] = port["value"]
-					elif port["link_node"] in load_run_nodes:
-						task["properties"][port["name"]] = int(run)
-					else:
-						task["ports"].append({
-							"port": "properties",
-							"name": port["name"],
-							"link_task": (run, port["link_node"]),
-							"link_port": port["link_port"],
-						})
-				for id in node["waiting"]:
-					if id not in load_run_nodes:
-						task["waiting"].append((run, id))
-				if len(task["waiting"]) == 0:
-					task["status"] = TaskStatus.READY
-				self.tasks.append(task)
-				task_id_map[(run, node["id"])] = task_id
-				task_id += 1
-		# print(json.dumps(self.tasks, indent=2))
-		for task in self.tasks:
-			# solve link task id
-			for port in task["ports"]:
-				port["link_task"] = task_id_map[port["link_task"]]
-			# solve waiting task id
-			solve_waiting = []
-			for w in task["waiting"]:
-				solve_waiting.append(task_id_map[w])
-			task["waiting"] = solve_waiting
-		print(json.dumps(self.tasks, indent=2))
-
-	def _parse_property_value(self, prop: Dict[str, Any]):
-		"""Parse property value based on its type."""
+	def _parse_property_value(self, prop: dict[str, Any]) -> Any:
+		"""Parse property value base on its type."""
 		result = None
-		if "type" in prop:
-			try:
-				match prop["type"]:
-					case "integer":
-						result = int(prop["value"])
-					case "float":
-						result = float(prop["value"])
-					case "bool":
-						result = bool(prop["value"])
-					case "str":
+		value = prop.get("value")
+		if value in ("", None):
+			return None
+		try:
+			match prop["type"]:
+				case "int" | "integer":
+					result = int(prop["value"])
+				case "float":
+					result = float(prop["value"])
+				case "bool":
+					if isinstance(prop["value"], bool):
 						result = prop["value"]
-			except:
-				result = None
+					else:
+						result = str(prop["value"]).lower() in {"1", "true", "yes", "on"}
+				case _:
+					result = prop["value"]
+		except Exception:
+			result = None
 		return result
 
-	def _adapt_workflow(self, workflow: Workflow):
-		"""Adapt workflow to execution task."""
-		adapted = {
+	def _resolve_workflow(self, workflow: Workflow) -> None:
+		resolved = {
 			"workflow_name": workflow.name,
 			"workspace": workflow.workspace,
 			"threads": workflow.workers,
 			"run_list": workflow.run.runs,
-			"nodes": [
-				{
-					"id": node.id,
-					"name": node.name,
-					"inputs": [
-						{
-							"name": v["name"],
-							"link_node": -1,
-						} for v in node.inputs
-					],
-					"properties": [
-						{
-							"name": v["name"],
-							"link_node": -1,
-							"value": self._parse_property_value(v),
-						} for v in node.properties
-					],
-					"waiting": [],
-				} for node in workflow.nodes
-			],
+			"nodes": []
 		}
+		# resolve nodes
+		for node in workflow.nodes:
+			node_class = self.manager.get_node(node.name)
+			if node_class is None:
+				raise ValueError(f"Workflow node '{node.name}' is not registered")
+			resolved["nodes"].append({
+				"id": node.id,
+				"name": node.name,
+				"type": node_class.type(),
+				"inputs": [
+					{
+						"name": port["name"],
+						"link_node": -1,
+					} for port in node.inputs
+				],
+				"properties": [
+					{
+						"name": prop["name"],
+						"link_node": -1,
+						"value": self._parse_property_value(prop),
+					} for prop in node.properties
+				],
+				"waiting": [],
+			})
 		# get map
-		node_map = {node["id"]: idx for idx, node in enumerate(adapted["nodes"])}
-		# loop links
+		node_map = {node["id"]: index for index, node in enumerate(resolved["nodes"])}
+
 		for link in workflow.links:
-			target_node = adapted["nodes"][node_map[link.target]]
-			target_port_id = int(link.targetHandle.split("-")[1])
+			# check link rules:
+			# 1. instant node ---> instant node only
+			# 2. batch node -x-> event node
+			# 3. event node -x-> batch node
+			# 4. property ---> instant node only
+			source_node = resolved["nodes"][node_map[link.source]]
+			source_type = source_node["type"]
+			target_node = resolved["nodes"][node_map[link.target]]
+			target_type = target_node["type"]
+			if (
+				(target_type == "instant" and source_type != "instant")
+				or (target_type == "event" and source_type == "batch")
+				or (target_type == "batch" and source_type == "event")
+			):
+				raise ValueError(
+					f"Link from {source_type} node '{source_node['name']}' to {target_type} node '{target_node['name']}' is not allowed"
+				)
+			if link.targetHandle.startswith("property") and source_type != "instant":
+				raise ValueError(
+					f"Link from {source_type} node '{source_node['name']}' to property is not allowed"
+				)
+
+			target_index = int(link.targetHandle.split("-")[1])
 			target_port = (
-				target_node["inputs"][target_port_id]
-				if link.targetHandle.startswith("input-")
-				else target_node["properties"][target_port_id]
+				target_node["inputs"][target_index]
+				if link.targetHandle.startswith("input")
+				else target_node["properties"][target_index]
 			)
 			target_port["link_node"] = link.source
 			target_port["link_port"] = int(link.sourceHandle.split("-")[1])
 			target_node["waiting"].append(link.source)
-		return adapted
 
-	def _submit_ready_tasks(self, executor):
+		self.resolved_workflow = resolved
+
+	def _nodes_to_tasks(self, workflow: dict[str, Any]) -> None:
+		converted = []
+		instant_values = {}
+		self.task_templates = []
+		open_templates = []
+
+		def _resolve_property(node: dict[str, Any]):
+			result = {}
+			for prop in node["properties"]:
+				if prop["link_node"] != -1:
+					if prop["link_node"] not in instant_values:
+						raise ValueError(
+							f"Node {node['id']} depends on {prop['link_node']}, but not exist in instant_values"
+						)
+					prop["value"] = instant_values[prop["link_node"]][prop["link_port"]]
+				result[prop["name"]] = prop["value"]
+			return result
+
+		def _create_open_template(
+				node: dict[str, Any],
+				properties: dict[str, Any],
+			):
+			open_templates.append({
+				"id": node["id"],
+				"name": node["alias"] if "alias" in node else "phase",
+				"type": "event",
+				"units": [{
+					"name": node["name"],
+					"parameters": {**properties} if properties else None,
+					"dependencies": {},
+				}],
+				"waiting": node["waiting"].copy(),
+				"contains": [node["id"]],
+				"id_map": {node["id"]: 0},
+				"open": True,
+			})
+
+		def _append_unit(
+			node: dict[str, Any],
+			properties: dict[str, Any],
+			name: str,
+			close: bool = False
+		):
+			found = False
+			for template in open_templates:
+				if not template["open"]:
+					continue
+				if not set(node["waiting"]).issubset(template["contains"]):
+					continue
+				found = True
+				template["units"].append({
+					"name": name,
+					"parameters": {**properties},
+					"dependencies": {
+						port["name"]: (
+							template["id_map"][port["link_node"]],
+							port["link_port"]
+						)
+						for port in node["inputs"]
+					},
+				})
+				template["contains"].append(node["id"])
+				template["id_map"][node["id"]] = len(template["units"]) - 1
+				template["open"] = not close
+				if close:
+					self.task_templates.append(template)
+
+			if not found:
+				raise ValueError(
+					f"Node {node['id']} can't find reader."
+				)
+
+
+		change = True
+		while change:
+			change = False
+			for node in workflow["nodes"]:
+				if (
+					node["id"] in converted
+					or not set(node["waiting"]).issubset(converted)
+				): continue
+				change = True
+				properties = _resolve_property(node)
+
+				if node["type"] == "instant":
+					manager = NodeManager()
+					instant_values[node["id"]] = (
+						manager.instant_execute_node(node["name"], properties)
+					)
+
+				elif node["type"] == "batch":
+					task = {
+						"id": node["id"],
+						"name": node["name"],
+						"type": "batch",
+						"parameters": {**properties},
+						"dependencies": {
+							port["name"]: (
+								port["link_node"],
+								port["link_port"]
+							)
+							for port in node["inputs"]
+						},
+						"waiting": node["waiting"],
+					}
+					self.task_templates.append(task)
+
+				elif node["type"] == "reader":
+					_create_open_template(node, properties)
+
+				elif node["type"] == "checkpoint":
+					writer_name, reader_name = manager.instant_execute_node(node["name"])
+					_append_unit(node, properties, writer_name, True)
+					_create_open_template(node, properties)
+					open_templates[-1]["units"][0]["name"] = reader_name
+					open_templates[-1]["waiting"] = [node["id"]]
+
+				elif node["type"] == "writer":
+					_append_unit(node, properties, node["name"], True)
+
+				elif node["type"] == "event":
+					_append_unit(node, properties, node["name"])
+
+				else:
+					raise ValueError(f"Unknown node type: {node['type']}")
+				converted.append(node["id"])
+
+	def _task_environment(self, run: int):
+		return {
+			**self.environment,
+			"run": run,
+		}
+
+	def _compile_tasks(self, templates):
+		task_id = 0
+		node_map = {}
+		for run in self.environment["run_list"]:
+			for template in templates:
+				if template["type"] == "batch":
+					task = BatchTask(
+						execution_id=self.environment["execution_id"],
+						id=task_id,
+						name=template["name"],
+						environment=self._task_environment(run),
+						outputs=[],
+						parameters=template["parameters"],
+						dependencies=[
+							Dependency(
+								parameter_name=name,
+								task=node_map[dep[0]],
+								index=dep[1],
+							)
+							for name, dep in template["dependencies"].items()
+						],
+						waiting=template["waiting"],
+						status=TaskStatus.WAITING if len(template["waiting"]) else TaskStatus.READY,
+					)
+					self.tasks.append(task)
+					node_map[template["id"]] = task_id
+					task_id += 1
+				elif template["type"] == "event":
+					task = EventTask(
+						execution_id=self.environment["execution_id"],
+						id=task_id,
+						name=template["name"],
+						environment=self._task_environment(run),
+						outputs=[],
+						units=[
+							EventTaskUnit(
+								id=idx,
+								name=unit["name"],
+								parameters=unit["parameters"],
+								dependencies=unit["dependencies"],
+							)
+							for idx, unit in enumerate(template["units"])
+						],
+						waiting=template["waiting"],
+						status=TaskStatus.WAITING if len(template["waiting"]) else TaskStatus.READY,
+					)
+					self.tasks.append(task)
+					node_map[template["id"]] = task_id
+					task_id += 1
+
+	def _submit_ready_tasks(self, executor: concurrent.futures.ProcessPoolExecutor) -> None:
+		"""Submit ready tasks to executor."""
 		for task in self.tasks:
-			if task["status"] != TaskStatus.READY:
+			if task.status != TaskStatus.READY:
 				continue
-			task["status"] = TaskStatus.QUEUED
-			# self.progress_store.start_task(task["execution_id"], str(task["id"]))
-			future = executor.submit(run_node, task)
+			task.status = TaskStatus.QUEUED
+			future = executor.submit(_run_task, task)
 			self.futures_to_task[future] = task
 
-	def _reduce_waiting(self, task_id):
+	def _reduce_waiting(self, completed_task_id: int) -> None:
+		"""Remove finished tasks from waiting list. Check if tasks become ready."""
 		for task in self.tasks:
-			if task["status"] != TaskStatus.WAITING:
+			if task.status != TaskStatus.WAITING:
 				continue
-			if task_id not in task["waiting"]:
+			if completed_task_id not in task.waiting:
 				continue
-			task["waiting"].remove(task_id)
-			self._solve_links(task_id, task)
-			if len(task["waiting"]) == 0 and task["status"] == TaskStatus.WAITING:
-				task["status"] = TaskStatus.READY
+			task.waiting.remove(completed_task_id)
+			# Completing one task may fill linked inputs/properties for downstream
+			# tasks before they become ready.
+			self._resolve_parameters(completed_task_id, task)
+			if not task.waiting and task.status == TaskStatus.WAITING:
+				task.status = TaskStatus.READY
 
-	def _solve_links(self, task_id, task):
-		outputs = self.tasks[task_id]["outputs"]
-		for port in task["ports"]:
-			if port["link_task"] != task_id:
-				continue
-			if outputs[port["link_port"]] is None:
-				task["status"] = TaskStatus.DISCARDED
-				self.progress_store.discard_task(
-					execution_id=self.environment["execution_id"],
-					task_id=task_id
-				)
-				self._chain_discard(task["id"])
-				break
-			else:
-				task[port["port"]][port["name"]] = outputs[port["link_port"]]
+	def _resolve_links(self, completed_task_id: int, task: Task) -> None:
+		"""Resolve links and assign value to proerties."""
+		outputs = self.tasks[completed_task_id].outputs
+		discard = False
+		if outputs is None:
+			discard = True
+		else:
+			for dep in task.dependencies:
+				if dep.task != completed_task_id:
+					continue
+				if outputs[dep.index] is None:
+					discard = True
+					break
+				task.parameters[dep.parameter_name] = outputs[dep.index]
+		if discard:
+			task.status = TaskStatus.DISCARDED
+			self.progress_store.discard_task(
+				execution_id=self.environment["execution_id"],
+				task_id=str(task.id),
+			)
+			self._chain_discard(task.id)
 
-	def _chain_discard(self, task_id):
+	def _chain_discard(self, discarded_task_id: int) -> None:
 		for task in self.tasks:
-			if task["status"] == TaskStatus.WAITING and task_id in task["waiting"]:
-				task["status"] = TaskStatus.DISCARDED
-				self.progress_store.discard_task(
-					execution_id=self.environment["execution_id"],
-					task_id=task_id
-				)
-				self._chain_discard(task["id"])
+			if task.status != TaskStatus.WAITING:
+				continue
+			if discarded_task_id not in task.waiting:
+				continue
+			task.status = TaskStatus.DISCARDED
+			self.progress_store.discard_task(
+				execution_id=self.environment["execution_id"],
+				task_id=str(task.id),
+			)
+			self._chain_discard(task.id)
+
+	def _serialize_initialization_value(self, value: Any) -> Any:
+		if isinstance(value, TaskStatus):
+			return value.name.lower()
+		if is_dataclass(value):
+			return {
+				key: self._serialize_initialization_value(item)
+				for key, item in asdict(value).items()
+			}
+		if isinstance(value, dict):
+			return {
+				str(key): self._serialize_initialization_value(item)
+				for key, item in value.items()
+			}
+		if isinstance(value, list):
+			return [self._serialize_initialization_value(item) for item in value]
+		if isinstance(value, tuple):
+			return [self._serialize_initialization_value(item) for item in value]
+		return value
+
+	def get_initialization_snapshot(self) -> dict[str, Any]:
+		"""Return snapshot of the workflow state."""
+		return {
+			"environment": self._serialize_initialization_value(self.environment),
+			"resolved_workflow": self._serialize_initialization_value(self.resolved_workflow),
+			"task_templates": self._serialize_initialization_value(self.task_templates),
+			"tasks": self._serialize_initialization_value(self.tasks),
+		}
 
 	@classmethod
-	def run(cls, execution_id: str, workflow: Workflow):
+	def run(cls, execution_id: str, workflow: Workflow) -> None:
 		processor = cls(execution_id, workflow)
 		processor.process()
